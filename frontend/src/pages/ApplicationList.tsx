@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Application, date, money, User } from "../api";
+import { apiPage, Application, date, money, User } from "../api";
 
 export function RiskBadge({ flag }: { flag: Application["risk"]["flag"] }) {
   if (!flag) return <span className="badge none">No data yet</span>;
@@ -13,15 +13,22 @@ export function StatusBadge({ status }: { status: Application["status"] }) {
 export default function ApplicationList({ user }: { user: User }) {
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<Application[] | null>(null);
+  const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  // Search text is sent in the request body, never in the URL: it is often an
+  // EIN or a person's name. Lists come one page at a time.
+  const fetchPage = (q: string, cursor?: string) =>
+    q
+      ? apiPage<Application>("POST", "/applications/search", { q, ...(cursor ? { cursor } : {}) })
+      : apiPage<Application>("GET", "/applications" + (cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""));
 
   useEffect(() => {
     // Small delay so we search when typing pauses, not on every key.
     let stale = false;
     const timer = setTimeout(() => {
-      const q = search.trim();
-      api<Application[]>("GET", "/applications" + (q ? `?q=${encodeURIComponent(q)}` : "")).then(
-        (data) => !stale && (setRows(data), setError("")),
+      fetchPage(search.trim()).then(
+        (page) => !stale && (setRows(page.items), setNext(page.next), setError("")),
         (err: Error) => !stale && setError(err.message),
       );
     }, 200);
@@ -32,6 +39,17 @@ export default function ApplicationList({ user }: { user: User }) {
   }, [search]);
 
   const isRm = user.role === "relationship_manager";
+
+  async function loadMore() {
+    if (!next) return;
+    try {
+      const page = await fetchPage(search.trim(), next);
+      setRows([...(rows ?? []), ...page.items]);
+      setNext(page.next);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   return (
     <>
@@ -95,6 +113,11 @@ export default function ApplicationList({ user }: { user: User }) {
             </tbody>
           </table>
         </div>
+      )}
+      {next && (
+        <p>
+          <button onClick={loadMore}>Load more</button>
+        </p>
       )}
     </>
   );

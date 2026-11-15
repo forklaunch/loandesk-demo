@@ -6,6 +6,7 @@ export interface User {
   full_name: string;
   role: Role;
   created_at?: string;
+  mfa_enabled?: boolean;
 }
 
 export interface Risk {
@@ -24,7 +25,8 @@ export interface Application {
   address: string;
   industry: string;
   requested_amount: number;
-  purpose: string;
+  /** Stored encrypted; sent with a single application, not in lists. */
+  purpose: string | null;
   status: "submitted" | "approved" | "declined";
   revenue: number | null;
   net_income: number | null;
@@ -78,13 +80,16 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   financial_statement: "Financial statement",
 };
 
-export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request(
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<{ data: unknown; headers: Headers }> {
   // The API rejects state-changing requests without this header (CSRF guard).
-  const headers: Record<string, string> = { "X-Requested-With": "loandesk" };
+  const headers: Record<string, string> = { "X-Requested-With": "loandesk", ...extraHeaders };
   let payload: BodyInit | undefined;
-  if (body instanceof FormData) {
-    payload = body;
-  } else if (body !== undefined) {
+  if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
   }
@@ -95,10 +100,68 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     if (res.status === 401 && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("loandesk:signed-out"));
     }
-    const fallback = res.status === 413 ? "The file is too large (limit is 20 MB)" : `Request failed (${res.status})`;
+    const fallback = res.status === 413 ? TOO_LARGE : `Request failed (${res.status})`;
     throw new Error(data?.error ?? fallback);
   }
-  return data as T;
+  return { data, headers: res.headers };
+}
+
+export async function api<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>,
+): Promise<T> {
+  return (await request(method, path, body, headers)).data as T;
+}
+
+/** One page of a list. `next` is the cursor for the following page, if any. */
+export interface Page<T> {
+  items: T[];
+  next: string | null;
+}
+
+export async function apiPage<T>(method: string, path: string, body?: unknown): Promise<Page<T>> {
+  const res = await request(method, path, body);
+  return { items: res.data as T[], next: res.headers.get("x-next-cursor") };
+}
+
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const TOO_LARGE = "The file is too large (limit is 20 MB)";
+
+interface UploadGrant {
+  id: string;
+  url: string;
+  fields: Record<string, string>;
+}
+
+/**
+ * Uploads one PDF. The file goes straight to document storage with a
+ * short-lived grant from the API (it never passes through the API server);
+ * the API then checks what arrived and queues it for reading.
+ */
+export async function uploadDocument(applicationId: string, docType: string, file: File): Promise<void> {
+  if (file.size > MAX_UPLOAD_BYTES) throw new Error(TOO_LARGE);
+  const grant = await api<UploadGrant>("POST", `/applications/${applicationId}/documents`, {
+    doc_type: docType,
+    filename: file.name,
+    size_bytes: file.size,
+  });
+  const form = new FormData();
+  for (const [name, value] of Object.entries(grant.fields)) form.append(name, value);
+  // Storage requires the declared type; the API verifies the real content afterwards.
+  form.append("file", new Blob([file], { type: "application/pdf" }), "document.pdf");
+  const stored = await fetch(grant.url, { method: "POST", body: form, credentials: "omit" });
+  if (!stored.ok) {
+    throw new Error(stored.status === 400 || stored.status === 413 ? TOO_LARGE : "The upload was interrupted. Try again.");
+  }
+  await api("POST", `/documents/${grant.id}/complete`);
+}
+
+/** Opens a stored document through a one-minute link issued (and audited) by the API. */
+export async function downloadDocument(documentId: string): Promise<void> {
+  const { url } = await api<{ url: string }>("POST", `/documents/${documentId}/download-url`);
+  window.location.assign(url);
 }
 
 export const money = (v: number | null | undefined) =>

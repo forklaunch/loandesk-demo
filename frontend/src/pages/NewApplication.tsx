@@ -22,6 +22,9 @@ export default function NewApplication() {
   const [owners, setOwners] = useState<OwnerForm[]>([{ ...emptyOwner }]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // One key per form: if the request is retried (double click, flaky network),
+  // the API returns the application it already created instead of a duplicate.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm({ ...form, [key]: e.target.value });
@@ -38,11 +41,16 @@ export default function NewApplication() {
     }
     setBusy(true);
     try {
-      const created = await api<{ id: string }>("POST", "/applications", {
-        ...form,
-        requested_amount: amount,
-        owners: owners.map((o) => ({ ...o, ownership_percent: Number(o.ownership_percent) })),
-      });
+      const created = await api<{ id: string }>(
+        "POST",
+        "/applications",
+        {
+          ...form,
+          requested_amount: amount,
+          owners: owners.map((o) => ({ ...o, ownership_percent: Number(o.ownership_percent) })),
+        },
+        { "Idempotency-Key": idempotencyKey },
+      );
       window.location.hash = `#/applications/${created.id}`;
     } catch (err) {
       setError((err as Error).message);

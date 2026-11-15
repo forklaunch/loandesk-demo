@@ -4,8 +4,9 @@ import ApplicationList from "./pages/ApplicationList";
 import NewApplication from "./pages/NewApplication";
 import ApplicationView from "./pages/ApplicationView";
 import Users from "./pages/Users";
+import Security from "./pages/Security";
 
-// Tiny hash router: #/, #/new, #/applications/<id>, #/users
+// Tiny hash router: #/, #/new, #/applications/<id>, #/users, #/security
 function useRoute() {
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => {
@@ -19,6 +20,7 @@ function useRoute() {
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -27,7 +29,8 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
     setBusy(true);
     setError("");
     try {
-      onLogin(await api<User>("POST", "/auth/login", { email, password }));
+      const code = totp.trim();
+      onLogin(await api<User>("POST", "/auth/login", { email, password, ...(code ? { totp: code } : {}) }));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -47,6 +50,16 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
         <label>
           Password
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </label>
+        <label>
+          Authenticator code <span className="muted">(only if two-factor sign-in is on)</span>
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={totp}
+            onChange={(e) => setTotp(e.target.value)}
+          />
         </label>
         {error && <div className="error">{error}</div>}
         <button className="primary" disabled={busy}>
@@ -87,7 +100,8 @@ export default function App() {
 
   const isAdmin = user.role === "admin";
   let page;
-  if (isAdmin) page = <Users me={user} />;
+  if (route[0] === "security") page = <Security user={user} onChange={setUser} />;
+  else if (isAdmin) page = <Users me={user} />;
   else if (route[0] === "new" && user.role === "relationship_manager") page = <NewApplication />;
   else if (route[0] === "applications" && route[1]) page = <ApplicationView key={route[1]} id={route[1]} />;
   else page = <ApplicationList user={user} />;
@@ -98,7 +112,9 @@ export default function App() {
         <a className="brand" href="#/">
           LoanDesk
         </a>
-        <nav>{isAdmin ? <a href="#/users">Users</a> : <a href="#/">Applications</a>}</nav>
+        <nav>
+          {isAdmin ? <a href="#/users">Users</a> : <a href="#/">Applications</a>} <a href="#/security">Security</a>
+        </nav>
         <div className="who">
           <span>
             {user.full_name} <span className="muted">· {ROLE_LABELS[user.role]}</span>

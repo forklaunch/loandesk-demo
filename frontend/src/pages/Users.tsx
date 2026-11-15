@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, date, Role, ROLE_LABELS, User } from "../api";
+import { api, apiPage, date, Role, ROLE_LABELS, User } from "../api";
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 const emptyForm = { full_name: "", email: "", password: "", role: "relationship_manager" as Role };
@@ -10,7 +10,24 @@ export default function Users({ me }: { me: User }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = () => api<User[]>("GET", "/users").then(setUsers, (e: Error) => setError(e.message));
+  // The API returns one page at a time; follow the cursor until the list is complete.
+  const load = async () => {
+    try {
+      const all: User[] = [];
+      let cursor: string | null = null;
+      do {
+        const page: { items: User[]; next: string | null } = await apiPage<User>(
+          "GET",
+          "/users?limit=100" + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""),
+        );
+        all.push(...page.items);
+        cursor = page.next;
+      } while (cursor);
+      setUsers(all);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   useEffect(() => {
     load();
   }, []);

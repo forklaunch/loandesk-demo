@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { api, ApplicationDetail, date, DOC_TYPE_LABELS, money } from "../api";
+import { api, ApplicationDetail, date, DOC_TYPE_LABELS, downloadDocument, money, uploadDocument } from "../api";
 import { RiskBadge, StatusBadge } from "./ApplicationList";
 
 const DOC_STATUS: Record<string, string> = {
@@ -171,7 +171,15 @@ export default function ApplicationView({ id }: { id: string }) {
               {documents.map((d) => (
                 <tr key={d.id} className="static">
                   <td>
-                    <a href={`/api/documents/${d.id}/download`}>{d.filename}</a>
+                    <a
+                      href="#download"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        downloadDocument(d.id).catch((err: Error) => setError(err.message));
+                      }}
+                    >
+                      {d.filename}
+                    </a>
                     <div className="muted small">{Math.max(1, Math.round(d.size_bytes / 1024))} KB</div>
                   </td>
                   <td>{DOC_TYPE_LABELS[d.doc_type] ?? d.doc_type}</td>
@@ -232,10 +240,7 @@ function UploadForm({ id, onDone }: { id: string; onDone: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const body = new FormData();
-      body.append("doc_type", docType);
-      body.append("file", file);
-      await api("POST", `/applications/${id}/documents`, body);
+      await uploadDocument(id, docType, file);
       if (fileRef.current) fileRef.current.value = "";
       onDone();
     } catch (err) {
