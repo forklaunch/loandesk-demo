@@ -1,0 +1,81 @@
+# Alert rules for LoanDesk, as code. Two groups:
+#  - PromQL rules for Mimir/Prometheus, over the metrics the ForkLaunch HTTP
+#    layer and the extraction worker export through OTLP;
+#  - LogQL rules for the Loki ruler, over the named `event` fields the services
+#    write in their JSON logs.
+# Metric names are the OTLP names with dots replaced by underscores, as the
+# collector's Prometheus exporter writes them; confirm the exact suffixes
+# (`_total`, `_milliseconds_bucket`) against your collector before loading.
+# Routing to a person (Alertmanager receiver / on-call rotation) is configured
+# where these are loaded, not here.
+groups:
+  - name: loandesk-availability
+    rules:
+      - alert: LoanDeskHighErrorRate
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[5m]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[5m])) > 0.02
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: More than 2% of API requests are failing
+          runbook: docs/runbooks/failures.md#api-errors
+      - alert: LoanDeskSlowRequests
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{service_name="api"}[5m]))) > 1
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: API p95 latency is above 1 second
+          runbook: docs/runbooks/failures.md#slow-requests
+      - alert: LoanDeskApiDown
+        expr: absent(http_server_request_count_total{service_name="api"})
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: The API has reported no requests (health probes included) for 5 minutes
+          runbook: docs/runbooks/failures.md#api-down
+
+  - name: loandesk-extraction
+    rules:
+      - alert: LoanDeskDeadLetters
+        expr: max(loandesk_extraction_queue_dead_letters) > 0
+        for: 1m
+        labels: { severity: ticket }
+        annotations:
+          summary: Extraction jobs have exhausted their retries
+          runbook: docs/runbooks/failures.md#dead-letters
+      - alert: LoanDeskQueueBacklog
+        expr: max(loandesk_extraction_queue_depth{state="waiting"}) > 25
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: Documents are waiting more than 10 minutes to be read
+          runbook: docs/runbooks/failures.md#queue-backlog
+      - alert: LoanDeskJobFailures
+        expr: |
+          sum(rate(loandesk_extraction_jobs_total{outcome=~"retried|dead_lettered"}[15m]))
+            / sum(rate(loandesk_extraction_jobs_total[15m])) > 0.2
+        for: 15m
+        labels: { severity: ticket }
+        annotations:
+          summary: More than 20% of extraction attempts are failing
+
+  - name: loandesk-security-events   # Loki ruler (LogQL)
+    rules:
+      - alert: LoanDeskFailedSignInBurst
+        expr: sum(count_over_time({service_name="api"} | json | event="login_failed" [5m])) > 20
+        labels: { severity: page }
+        annotations:
+          summary: More than 20 failed sign-ins in 5 minutes
+          runbook: docs/runbooks/failures.md#failed-sign-ins
+      - alert: LoanDeskPermissionDenialBurst
+        expr: sum(count_over_time({service_name="api"} | json | event="permission_denied" [5m])) > 30
+        labels: { severity: ticket }
+        annotations:
+          summary: Unusual number of refused actions; someone may be probing for access
+      - alert: LoanDeskCrossTenantStorageKey
+        expr: sum(count_over_time({service_name="api"} | json | event="cross_tenant_storage_key" [5m])) > 0
+        labels: { severity: page }
+        annotations:
+          summary: A storage key outside the tenant prefix was requested
