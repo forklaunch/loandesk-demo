@@ -1,0 +1,80 @@
+# LoanDesk's own checks, beside the generated ForkLaunch workflow (ci.yml).
+name: Checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Front end (type-check and build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+      - run: npm ci
+      - run: npm run build
+      - name: Known vulnerabilities in shipped dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  dependencies:
+    name: Rust dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-audit --locked --version 0.21.2
+      - run: cargo audit
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  commit-messages:
+    name: Commit message convention
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          for commit in $(git rev-list origin/${{ github.base_ref }}..${{ github.event.pull_request.head.sha }}); do
+            git log -1 --format=%B "$commit" > /tmp/message
+            sh scripts/check-commit-message.sh /tmp/message
+          done
+
+  end-to-end:
+    name: End to end (real database, object store and worker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Applies every migration to a fresh database, starts the whole stack
+      # and waits for the health checks; fails if any service is unhealthy.
+      - run: GIT_SHA=${{ github.sha }} docker compose up --build -d --wait
+      - run: python3 scripts/e2e.py
+      - name: Classified columns hold ciphertext, audit trail is append-only
+        run: sh scripts/verify-storage.sh
+      - if: failure()
+        run: docker compose logs --no-color | tail -n 300
+      - if: always()
+        run: docker compose down -v

@@ -1,0 +1,31 @@
+# Who must review changes to each part of LoanDesk.
+#
+# The team handles below are PLACEHOLDERS: replace them with the real GitHub
+# teams before turning on "Require review from Code Owners" (see
+# .github/BRANCH_PROTECTION.md). The path-to-owner mapping is the intended one.
+
+*                              @loandesk/engineering
+
+# API: routes, authorization, sessions, field encryption
+/src/api/                      @loandesk/backend
+/src/api/api/policy.rs         @loandesk/backend @loandesk/security
+/src/api/persistence/          @loandesk/backend @loandesk/security
+/src/api/migrations/           @loandesk/backend @loandesk/security
+
+# Document extraction worker
+/src/extraction/               @loandesk/backend
+
+# Risk formulas and figure parsing: credit policy owners review changes
+/src/shared/                   @loandesk/backend @loandesk/credit-policy
+
+# Web front end
+/frontend/                     @loandesk/frontend
+
+# Deployment, CI, monitoring, secrets handling
+/.forklaunch/                  @loandesk/platform
+/.github/                      @loandesk/platform
+/docker-compose.yaml           @loandesk/platform
+/Dockerfile.rust               @loandesk/platform
+/scripts/                      @loandesk/platform
+/src/monitoring/               @loandesk/platform
+/docs/                         @loandesk/engineering
