@@ -1,63 +1,340 @@
-volumes:
-  minio-data:
-    driver: local
-  mimir-data:
-    driver: local
-  loki-data:
-    driver: local
-  tempo-data:
-    driver: local
-  loandesk-postgresql-data:
-    driver: local
-networks:
-  loandesk-network:
-    name: loandesk-network
-    driver: bridge
+# LoanDesk on ForkLaunch: the whole stack with one command.
+#
+#   docker compose up --build        then open http://127.0.0.1:41080
+#
+# This file is for running LoanDesk on one machine. It contains no secrets:
+# database passwords, the field-encryption key and the storage keys are
+# generated on first start by scripts/demo-secrets.sh and kept in the
+# `demo-secrets` volume. The only fixed credential is the demo sign-in password
+# (DEMO_PASSWORD, documented in the README); demo seeding and generated secrets
+# are both refused when APP_ENV=production.
+#
+# Only the web UI is published, and only on 127.0.0.1. The API, PostgreSQL and
+# the object store are reachable only inside the Compose network.
+#
+# Deployments are made by the ForkLaunch platform from .forklaunch/manifest.toml
+# (see docs/deployment.md); this file describes the same services for a laptop.
+
+name: loandesk
+
+x-logging: &logging
+  # Bounded local log retention: at most 5 files of 10 MB per container.
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-backend: &backend
+  image: loandesk-rust:${LOANDESK_VERSION:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile.rust
+    args:
+      GIT_SHA: ${GIT_SHA:-}
+      CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-4}
+  entrypoint: ["/bin/sh", "/usr/local/bin/demo-env"]
+  working_dir: /app
+  networks: [loandesk]
+  logging: *logging
+  volumes:
+    - ./scripts/demo-env.sh:/usr/local/bin/demo-env:ro
+    - demo-secrets:/run/demo-secrets:ro
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-development}
+  RUST_LOG: ${RUST_LOG:-info}
+  # One trusted tenant per deployment; not a secret.
+  TENANT_ID: ${TENANT_ID:-6f1d5a0e-58f4-4c58-9a51-0c2f6b1d7c11}
+  # Plaintext database connections are allowed only on this private Compose
+  # network. Refused when APP_ENV=production.
+  DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT: "true"
+  WORKER_ALLOW_PLAINTEXT_DEVELOPMENT: "true"
+  STORAGE_ENCRYPTION_NAMESPACE: loandesk-records
+  ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-demo-1}
+  ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
+  ENCRYPTION_LEGACY_KEY_HEX: disabled
+  S3_URL: http://object-store:9000
+  S3_BUCKET: loandesk-documents
+  S3_REGION: us-east-1
+  WORKER_QUEUE: extraction
+  WORKER_MAX_ATTEMPTS: "3"
+  WORKER_BACKOFF_SECONDS: "5"
+  # Set to http://otel-collector:4318 together with `--profile observability`.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${APP_ENV:-development}
+
 services:
-  minio:
-    container_name: loandesk-minio
-    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
-    restart: always
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-    - 127.0.0.1:9000:9000
-    - 127.0.0.1:9001:9001
-    networks:
-    - loandesk-network
+  demo-secrets:
+    image: postgres:16.10-alpine3.22
+    restart: "no"
+    network_mode: none
+    logging: *logging
+    entrypoint: ["/bin/sh", "/usr/local/bin/demo-secrets"]
     volumes:
-    - minio-data:/data
-    command: server /data --console-address :9001
-    healthcheck:
-      test:
-      - CMD
-      - mc
-      - ready
-      - local
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-  minio-init:
-    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
-    environment: {}
+      - ./scripts/demo-secrets.sh:/usr/local/bin/demo-secrets:ro
+      - demo-secrets:/run/demo-secrets
+
+  postgresql:
+    image: postgres:16.10-alpine3.22
+    restart: unless-stopped
+    networks: [loandesk]
+    logging: *logging
+    stop_grace_period: 30s
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/demo-secrets/postgres_password
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+      - demo-secrets:/run/demo-secrets:ro
     depends_on:
-      minio:
+      demo-secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  # Creates the database and two roles: `loandesk_owner` owns the schema and
+  # runs migrations; `loandesk_app` is what the services run as. The app role
+  # is not a superuser and cannot bypass row-level security.
+  postgresql-provision:
+    image: postgres:16.10-alpine3.22
+    restart: "no"
+    networks: [loandesk]
+    logging: *logging
+    volumes:
+      - ./scripts/provision-database.sh:/usr/local/bin/provision-database:ro
+      - demo-secrets:/run/demo-secrets:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/provision-database"]
+    depends_on:
+      postgresql:
         condition: service_healthy
+
+  # S3-compatible object store for uploaded documents (stands in for the
+  # platform's S3 bucket). Objects are encrypted at rest (SSE-S3).
+  object-store:
+    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
+    restart: unless-stopped
+    networks: [loandesk]
+    logging: *logging
+    stop_grace_period: 30s
+    volumes:
+      - object-store-data:/data
+      - demo-secrets:/run/demo-secrets:ro
+    depends_on:
+      demo-secrets:
+        condition: service_completed_successfully
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export MINIO_ROOT_USER="$$(cat /run/demo-secrets/s3_access_key)"
+        export MINIO_ROOT_PASSWORD="$$(cat /run/demo-secrets/s3_secret_key)"
+        export MINIO_KMS_SECRET_KEY="$$(cat /run/demo-secrets/storage_kms_key)"
+        exec minio server /data --console-address :9001
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  object-store-init:
+    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
+    restart: "no"
+    networks: [loandesk]
+    logging: *logging
+    volumes:
+      - demo-secrets:/run/demo-secrets:ro
+    depends_on:
+      object-store:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mc alias set store http://object-store:9000 "$$(cat /run/demo-secrets/s3_access_key)" "$$(cat /run/demo-secrets/s3_secret_key)" >/dev/null
+        mc mb --ignore-existing store/loandesk-documents
+        mc encrypt set sse-s3 store/loandesk-documents
+        mc anonymous set none store/loandesk-documents
+
+  api-migrate:
+    <<: *backend
+    restart: "no"
+    environment:
+      <<: *backend-env
+      USE_MIGRATION_ROLE: "true"
+      # Only needed once, when adopting a database written by the previous
+      # backend: its base64 DATA_ENCRYPTION_KEY, to re-encrypt stored SSNs.
+      LEGACY_DATA_ENCRYPTION_KEY: ${LEGACY_DATA_ENCRYPTION_KEY:-}
+    command: ["/app/bin/api", "--migrate"]
+    depends_on:
+      postgresql-provision:
+        condition: service_completed_successfully
+
+  extraction-migrate:
+    <<: *backend
+    restart: "no"
+    environment:
+      <<: *backend-env
+      USE_MIGRATION_ROLE: "true"
+    command: ["/app/bin/extraction", "--migrate"]
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *backend
+    restart: unless-stopped
+    # Time to drain in-flight requests after SIGTERM before the container is killed.
+    stop_grace_period: 40s
+    environment:
+      <<: *backend-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      PROTOCOL: http
+      VERSION: v1
+      DOCS_PATH: /docs
+      # The origin browsers use. Requests from any other origin are refused.
+      PUBLIC_ORIGIN: http://127.0.0.1:${WEB_PORT:-41080}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-41080}
+      # Browsers reach the object store through the web container, same origin.
+      S3_PUBLIC_URL: /storage
+      DATABASE_MAX_CONNECTIONS: "10"
+      DATABASE_STATEMENT_TIMEOUT_MS: "10000"
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # LOCAL DEMO ONLY: fictional users and applications on an empty database.
+      # Refused when APP_ENV=production.
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-loandesk-demo-2026}
+    command: ["/app/bin/api"]
+    depends_on:
+      extraction-migrate:
+        condition: service_completed_successfully
+      object-store-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Readiness: fails while PostgreSQL or the object store is unreachable.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 128M }
+
+  extraction:
+    <<: *backend
+    restart: unless-stopped
+    # WORKER_DRAIN_MS (30 s) to finish in-flight jobs, plus margin.
+    stop_grace_period: 40s
+    environment:
+      <<: *backend-env
+      WORKER_CONCURRENCY: "2"
+      WORKER_BATCH_SIZE: "1"
+      WORKER_POLL_MS: "500"
+      WORKER_LEASE_MS: "60000"
+      WORKER_RENEW_MS: "20000"
+      WORKER_DRAIN_MS: "30000"
+      # Finished jobs are purged after 7 days, dead letters after 30.
+      WORKER_COMPLETED_RETENTION_SECONDS: "604800"
+      WORKER_FAILED_RETENTION_SECONDS: "2592000"
+      WORKER_RETENTION_INTERVAL_MS: "60000"
+      WORKER_RETENTION_BATCH_LIMIT: "100"
+      WORKER_RETENTION_TIMEOUT_MS: "5000"
+      WORKER_HTTP_ADDR: 0.0.0.0:8081
+    command: ["/app/bin/extraction"]
+    depends_on:
+      extraction-migrate:
+        condition: service_completed_successfully
+      object-store-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/ready"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+        reservations: { cpus: "0.25", memory: 128M }
+
+  web:
+    image: loandesk-web:${LOANDESK_VERSION:-local}
+    build: ./frontend
+    restart: unless-stopped
+    networks: [loandesk]
+    logging: *logging
+    ports:
+      - "127.0.0.1:${WEB_PORT:-41080}:8080"
+    depends_on:
+      # Takes traffic only once the API reports ready.
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128M }
+
+  # --- Optional: local observability stack (`--profile observability`) -------
+  # Grafana on http://127.0.0.1:41300 with the dashboards in src/monitoring.
+  # Start with:
+  #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 \
+  #     docker compose --profile observability up --build
+  # Its telemetry bucket lives in a separate store that holds no borrower data
+  # and uses that image's built-in local default credentials.
+  telemetry-store:
+    profiles: [observability]
+    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
+    restart: unless-stopped
+    logging: *logging
     networks:
-    - loandesk-network
-    entrypoint: /bin/sh -c "mc alias set local http://minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/forklaunch-telemetry && mc mb --ignore-existing local/loandesk-api-dev"
+      loandesk:
+        aliases: [minio]
+    volumes:
+      - telemetry-store-data:/data
+    command: server /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  telemetry-store-init:
+    profiles: [observability]
+    image: cgr.dev/chainguard/minio@sha256:32c504bea4574d8f29d719b37bc0dad920ecf3e22b81dc5cea0bb105af2ce10f
+    restart: "no"
+    logging: *logging
+    networks: [loandesk]
+    depends_on:
+      telemetry-store:
+        condition: service_healthy
+    entrypoint: /bin/sh -c "mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null && mc mb --ignore-existing local/forklaunch-telemetry"
   tempo:
+    profiles: [observability]
+    logging: *logging
     image: grafana/tempo:3.0.0
     environment: {}
     depends_on:
-      minio-init:
+      telemetry-store-init:
         condition: service_completed_successfully
     ports:
-    - 127.0.0.1:3200:3200
+    - 127.0.0.1:${TEMPO_PORT:-41320}:3200
     networks:
-    - loandesk-network
+    - loandesk
     volumes:
     - ./src/monitoring/tempo.yaml:/etc/tempo.yaml
     - tempo-data:/var/tempo
@@ -73,48 +350,56 @@ services:
       retries: 12
       start_period: 30s
   loki:
+    profiles: [observability]
+    logging: *logging
     image: grafana/loki:3.7.7
     environment: {}
     depends_on:
-      minio-init:
+      telemetry-store-init:
         condition: service_completed_successfully
     ports:
-    - 127.0.0.1:3100:3100
+    - 127.0.0.1:${LOKI_PORT:-41310}:3100
     networks:
-    - loandesk-network
+    - loandesk
     volumes:
     - ./src/monitoring/loki.yaml:/etc/loki/local-config.yaml
     - loki-data:/loki
     command: -config.file=/etc/loki/local-config.yaml
   mimir:
+    profiles: [observability]
+    logging: *logging
     image: grafana/mimir:3.2.0
     environment: {}
     depends_on:
-      minio-init:
+      telemetry-store-init:
         condition: service_completed_successfully
       memcached:
         condition: service_started
     ports:
-    - 127.0.0.1:9090:9090
+    - 127.0.0.1:${MIMIR_PORT:-41909}:9090
     networks:
-    - loandesk-network
+    - loandesk
     volumes:
     - ./src/monitoring/mimir.yaml:/etc/mimir/mimir.yaml
     - mimir-data:/data
     command: -config.file=/etc/mimir/mimir.yaml
   memcached:
+    profiles: [observability]
+    logging: *logging
     image: memcached:1.6-alpine
     environment: {}
     networks:
-    - loandesk-network
+    - loandesk
     command: -m 64
   grafana:
+    profiles: [observability]
+    logging: *logging
     image: grafana/grafana:12.3.1
     environment: {}
     ports:
-    - 127.0.0.1:3000:3000
+    - 127.0.0.1:${GRAFANA_PORT:-41300}:3000
     networks:
-    - loandesk-network
+    - loandesk
     volumes:
     - ./src/monitoring/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
     - ./src/monitoring/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
@@ -131,6 +416,8 @@ services:
       retries: 3
       start_period: 30s
   otel-collector:
+    profiles: [observability]
+    logging: *logging
     image: otel/opentelemetry-collector-contrib:0.159.0
     environment: {}
     depends_on:
@@ -141,240 +428,24 @@ services:
       tempo:
         condition: service_started
     ports:
-    - 127.0.0.1:4317:4317
-    - 127.0.0.1:4318:4318
-    - 127.0.0.1:13133:13133
+    - 127.0.0.1:${OTLP_GRPC_PORT:-41317}:4317
+    - 127.0.0.1:${OTLP_HTTP_PORT:-41318}:4318
+    - 127.0.0.1:${OTEL_HEALTH_PORT:-41133}:13133
     networks:
-    - loandesk-network
+    - loandesk
     volumes:
     - ./src/monitoring/otel-collector-config.yaml:/etc/otel-collector-config.yaml
     command: --config=/etc/otel-collector-config.yaml
-  api:
-    hostname: api
-    container_name: loandesk-api-rust
-    image: loandesk-rust:local
-    restart: unless-stopped
-    build:
-      context: .
-      dockerfile: Dockerfile.rust
-    environment:
-      HOST: 0.0.0.0
-      PROTOCOL: http
-      VERSION: v1
-      DOCS_PATH: /docs
-      RUST_LOG: info
-      PORT: '8000'
-      MCP_ENABLED: 'true'
-      PUBLIC_ORIGIN: http://localhost:8000
-      DATABASE_URL: ${API_DATABASE_URL:?Configure a restricted service PostgreSQL role}
-      TENANT_ID: ${API_TENANT_ID:?Configure a trusted tenant UUID}
-      STORAGE_ENCRYPTION_NAMESPACE: ${API_STORAGE_ENCRYPTION_NAMESPACE:?Configure a stable service storage namespace}
-      ENCRYPTION_KEY_HEX: ${ENCRYPTION_KEY_HEX:?Configure encryption key}
-      ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-primary}
-      ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
-      ENCRYPTION_LEGACY_KEY_HEX: ${ENCRYPTION_LEGACY_KEY_HEX:-disabled}
-      DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT: ${DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT:-false}
-      S3_URL: http://minio:9000
-      S3_BUCKET: loandesk-api-dev
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Configure a field encryption key}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-    depends_on:
-      minio-init:
-        condition: service_completed_successfully
-      api-migrate:
-        condition: service_completed_successfully
-    ports:
-    - 8000:8000
-    networks:
-    - loandesk-network
-    working_dir: /app
-    command:
-    - /app/bin/api
-    healthcheck:
-      test:
-      - CMD
-      - curl
-      - -f
-      - http://localhost:8000/health
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-  postgresql:
-    hostname: postgresql
-    container_name: loandesk-postgresql
-    image: postgres:latest
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgresql
-      POSTGRES_PASSWORD: postgresql
-      POSTGRES_HOST_AUTH_METHOD: trust
-    ports:
-    - 127.0.0.1:5432:5432
-    networks:
-    - loandesk-network
-    volumes:
-    - loandesk-postgresql-data:/var/lib/postgresql
-    healthcheck:
-      test:
-      - CMD-SHELL
-      - pg_isready -U postgresql -h localhost
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-  postgresql-provision:
-    image: postgres:latest
-    restart: no
-    depends_on:
-      postgresql:
-        condition: service_healthy
-    networks:
-    - loandesk-network
-    entrypoint:
-    - sh
-    - -c
-    command:
-    - |
-      set -eu
-      psql -v ON_ERROR_STOP=1 -h postgresql -U postgresql -d postgres <<'SQL'
-      SELECT format('CREATE ROLE %I LOGIN', name) FROM unnest(ARRAY['api_owner', 'api_app']) AS name WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = name)\gexec
-      SELECT format('CREATE DATABASE %I OWNER %I', 'loandesk_api', 'api_owner') WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'loandesk_api')\gexec
-      SQL
-      psql -v ON_ERROR_STOP=1 -h postgresql -U postgresql -d 'loandesk_api' <<'SQL'
-      ALTER SCHEMA public OWNER TO api_owner;
-      ALTER DEFAULT PRIVILEGES FOR ROLE api_owner GRANT USAGE ON SCHEMAS TO api_app;
-      ALTER DEFAULT PRIVILEGES FOR ROLE api_owner GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_app;
-      ALTER DEFAULT PRIVILEGES FOR ROLE api_owner GRANT USAGE, SELECT ON SEQUENCES TO api_app;
-      SELECT format('GRANT USAGE ON SCHEMA %I TO %I', nspname, 'api_app') FROM pg_namespace WHERE nspowner = 'api_owner'::regrole\gexec
-      SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', nspname, 'api_app') FROM pg_namespace WHERE nspowner = 'api_owner'::regrole\gexec
-      SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', nspname, 'api_app') FROM pg_namespace WHERE nspowner = 'api_owner'::regrole\gexec
-      SQL
-      psql -v ON_ERROR_STOP=1 -h postgresql -U postgresql -d postgres <<'SQL'
-      SELECT format('CREATE ROLE %I LOGIN', name) FROM unnest(ARRAY['extraction_owner', 'extraction_app']) AS name WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = name)\gexec
-      SELECT format('CREATE DATABASE %I OWNER %I', 'loandesk_extraction', 'extraction_owner') WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'loandesk_extraction')\gexec
-      SQL
-      psql -v ON_ERROR_STOP=1 -h postgresql -U postgresql -d 'loandesk_extraction' <<'SQL'
-      ALTER SCHEMA public OWNER TO extraction_owner;
-      ALTER DEFAULT PRIVILEGES FOR ROLE extraction_owner GRANT USAGE ON SCHEMAS TO extraction_app;
-      ALTER DEFAULT PRIVILEGES FOR ROLE extraction_owner GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO extraction_app;
-      ALTER DEFAULT PRIVILEGES FOR ROLE extraction_owner GRANT USAGE, SELECT ON SEQUENCES TO extraction_app;
-      SELECT format('GRANT USAGE ON SCHEMA %I TO %I', nspname, 'extraction_app') FROM pg_namespace WHERE nspowner = 'extraction_owner'::regrole\gexec
-      SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', nspname, 'extraction_app') FROM pg_namespace WHERE nspowner = 'extraction_owner'::regrole\gexec
-      SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', nspname, 'extraction_app') FROM pg_namespace WHERE nspowner = 'extraction_owner'::regrole\gexec
-      SQL
-  api-migrate:
-    image: loandesk-rust:local
-    restart: no
-    build:
-      context: .
-      dockerfile: Dockerfile.rust
-    environment:
-      HOST: 0.0.0.0
-      PROTOCOL: http
-      VERSION: v1
-      DOCS_PATH: /docs
-      RUST_LOG: info
-      PORT: '8000'
-      MCP_ENABLED: 'true'
-      PUBLIC_ORIGIN: http://localhost:8000
-      DATABASE_URL: ${API_MIGRATION_DATABASE_URL:?Configure the migration owner role}
-      TENANT_ID: ${API_TENANT_ID:?Configure a trusted tenant UUID}
-      STORAGE_ENCRYPTION_NAMESPACE: ${API_STORAGE_ENCRYPTION_NAMESPACE:?Configure a stable service storage namespace}
-      ENCRYPTION_KEY_HEX: ${ENCRYPTION_KEY_HEX:?Configure encryption key}
-      ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-primary}
-      ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
-      ENCRYPTION_LEGACY_KEY_HEX: ${ENCRYPTION_LEGACY_KEY_HEX:-disabled}
-      DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT: ${DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT:-false}
-      S3_URL: http://minio:9000
-      S3_BUCKET: loandesk-api-dev
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Configure a field encryption key}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
-      MIGRATION_DATABASE_URL: ${API_MIGRATION_DATABASE_URL:?Configure the migration owner role}
-    depends_on:
-      postgresql-provision:
-        condition: service_completed_successfully
-    networks:
-    - loandesk-network
-    working_dir: /app
-    command:
-    - /app/bin/api
-    - --migrate
-  extraction:
-    hostname: extraction
-    container_name: loandesk-extraction-rust
-    image: loandesk-rust:local
-    restart: unless-stopped
-    environment:
-      HOST: 0.0.0.0
-      PROTOCOL: http
-      VERSION: v1
-      DOCS_PATH: /docs
-      RUST_LOG: info
-      QUEUE_NAME: loandesk-extraction-dev
-      DATABASE_URL: ${EXTRACTION_DATABASE_URL:?Configure a restricted PostgreSQL role}
-      TENANT_ID: ${EXTRACTION_TENANT_ID:?Configure a trusted tenant UUID}
-      WORKER_QUEUE: extraction
-      WORKER_MAX_ATTEMPTS: '3'
-      WORKER_BACKOFF_SECONDS: '30'
-      WORKER_CONCURRENCY: '1'
-      WORKER_BATCH_SIZE: '1'
-      WORKER_POLL_MS: '250'
-      WORKER_LEASE_MS: '30000'
-      WORKER_RENEW_MS: '10000'
-      WORKER_DRAIN_MS: '30000'
-      WORKER_ALLOW_PLAINTEXT_DEVELOPMENT: ${WORKER_ALLOW_PLAINTEXT_DEVELOPMENT:-false}
-      ENCRYPTION_KEY_HEX: ${ENCRYPTION_KEY_HEX:?Configure a 32-byte worker encryption key}
-      ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-primary}
-      ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
-      ENCRYPTION_LEGACY_KEY_HEX: ${ENCRYPTION_LEGACY_KEY_HEX:-disabled}
-    depends_on:
-      extraction-migrate:
-        condition: service_completed_successfully
-    networks:
-    - loandesk-network
-    working_dir: /app
-    command:
-    - /app/bin/extraction
-  extraction-migrate:
-    image: loandesk-rust:local
-    restart: no
-    environment:
-      HOST: 0.0.0.0
-      PROTOCOL: http
-      VERSION: v1
-      DOCS_PATH: /docs
-      RUST_LOG: info
-      QUEUE_NAME: loandesk-extraction-dev
-      DATABASE_URL: ${EXTRACTION_MIGRATION_DATABASE_URL:?Configure the migration owner role}
-      TENANT_ID: ${EXTRACTION_TENANT_ID:?Configure a trusted tenant UUID}
-      WORKER_QUEUE: extraction
-      WORKER_MAX_ATTEMPTS: '3'
-      WORKER_BACKOFF_SECONDS: '30'
-      WORKER_CONCURRENCY: '1'
-      WORKER_BATCH_SIZE: '1'
-      WORKER_POLL_MS: '250'
-      WORKER_LEASE_MS: '30000'
-      WORKER_RENEW_MS: '10000'
-      WORKER_DRAIN_MS: '30000'
-      WORKER_ALLOW_PLAINTEXT_DEVELOPMENT: ${WORKER_ALLOW_PLAINTEXT_DEVELOPMENT:-false}
-      ENCRYPTION_KEY_HEX: ${ENCRYPTION_KEY_HEX:?Configure a 32-byte worker encryption key}
-      ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-primary}
-      ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
-      ENCRYPTION_LEGACY_KEY_HEX: ${ENCRYPTION_LEGACY_KEY_HEX:-disabled}
-      MIGRATION_DATABASE_URL: ${EXTRACTION_MIGRATION_DATABASE_URL:?Configure the migration owner role}
-    depends_on:
-      postgresql-provision:
-        condition: service_completed_successfully
-    networks:
-    - loandesk-network
-    working_dir: /app
-    command:
-    - /app/bin/extraction
-    - --migrate
+
+volumes:
+  demo-secrets:
+  postgresql-data:
+  object-store-data:
+  telemetry-store-data:
+  mimir-data:
+  loki-data:
+  tempo-data:
+
+networks:
+  loandesk:
+    driver: bridge

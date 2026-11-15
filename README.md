@@ -4,29 +4,34 @@ Internal web app for a commercial lending team: relationship managers create
 loan applications and upload supporting documents, a background worker pulls
 key figures out of the PDFs, and credit officers approve or decline.
 
+The backend is a [ForkLaunch](https://forklaunch.com) application: a Rust API
+service and a Rust worker (`.forklaunch/manifest.toml`).
+
 ## Run it
 
 ```sh
-docker compose -f docker-compose.yml up --build
+docker compose up --build
 ```
 
-(While the backend is being moved onto ForkLaunch, `docker-compose.yml` is the
-original stack and `docker-compose.yaml` is the ForkLaunch scaffold. The
-explicit `-f` keeps the original stack running until the cutover commit.)
+Then open **http://127.0.0.1:41080**. The first build compiles the Rust
+services and takes several minutes.
 
-Then open **http://localhost:41080**. The first build compiles the Rust
-services and takes a few minutes.
-
-- Only the web UI is published, on `127.0.0.1:41080`. The API and Postgres are
-  reachable only inside the Compose network.
+- Only the web UI is published, on `127.0.0.1:41080`. The API, PostgreSQL and
+  the object store are reachable only inside the Compose network.
 - To use another port: `WEB_PORT=41090 docker compose up --build`.
-- To stop: `docker compose down`. To also wipe the database and uploaded
-  documents (and get fresh demo data next time): `docker compose down -v`.
+- To stop: `docker compose down`. To also wipe the database, documents and
+  generated secrets (and get fresh demo data next time): `docker compose down -v`.
+- No `.env` file is needed and the repository contains no secrets: database
+  passwords, the field-encryption key and storage keys are generated on first
+  start (`scripts/demo-secrets.sh`).
+- Optional Grafana/Loki/Tempo/Mimir stack: see the `observability` profile at
+  the bottom of `docker-compose.yaml`.
 
 ## Demo logins
 
 Created on first start, when the database is empty. Password for all of them:
-`loandesk-demo-2026`
+`loandesk-demo-2026` (the Compose default for `DEMO_PASSWORD`; local demo only,
+seeding is refused when `APP_ENV=production`).
 
 | Email                        | Name         | Role                 |
 | ---------------------------- | ------------ | -------------------- |
@@ -46,11 +51,12 @@ All seeded borrowers, owners, SSNs and EINs are fictional (SSNs are in the
 2. Open **Cedar Ridge Veterinary Clinic**. It has no documents, so there is no
    risk flag yet. Upload `sample-docs/cedar-ridge-financial-statement.pdf`.
    Within a couple of seconds the worker fills in revenue, net income and
-   total debt, and the risk summary shows **Medium**.
+   total debt, and the risk summary appears.
 3. Note that Maya has no approve/decline buttons.
 4. Sign in as **Priya**. She sees every application, and can approve or decline
    Cedar Ridge with a note.
 5. Sign in as **admin** to add a user or change someone's role.
+6. Under **Security**, anyone can turn on two-factor sign-in with an authenticator app.
 
 ## Who can do what
 
@@ -62,40 +68,48 @@ All seeded borrowers, owners, SSNs and EINs are fictional (SSNs are in the
 | Approve / decline | No | Yes, except applications they created | No |
 | Add users, set roles | No | No | Yes (not their own role) |
 
-Two of these are my reading of the brief rather than something it spelled
-out, and are easy to change in `backend/api/src/applications.rs`
-(`visibility_filter`):
+Roles are declared on each route's contract (`src/api/api/controllers/`) and
+enforced by one policy (`src/api/api/policy.rs`). "Cannot approve their own
+applications" is enforced three ways: only credit officers can decide; nobody
+can decide an application they created (this matters when a relationship
+manager is later made a credit officer); and the database has a constraint for
+the same rule.
 
-- Relationship managers see only their own applications, not the whole team's.
-- Admins manage users but cannot see borrower data.
+## Test it
 
-"Cannot approve their own applications" is enforced three ways: only credit
-officers can decide; nobody can decide an application they created (this
-matters when an RM is later made a credit officer); and the database has a
-constraint for the same rule.
+```sh
+cargo test --workspace                 # unit, contract and classification tests (no services needed)
+cd frontend && npm ci && npm run build # type-check and build the front end
+
+docker compose up --build -d --wait    # then, against the running stack:
+python3 scripts/e2e.py                 # 72 end-to-end checks: flows and who is refused
+sh scripts/verify-storage.sh           # ciphertext at rest, append-only audit trail, row-level security
+```
 
 ## How it fits together
 
-```
-browser ──> web (nginx: React app, proxies /api) ──> api (Axum) ──> Postgres
-                                                       │               ▲
-                                                       └─ docs volume ─┤
-                                                          worker ──────┘
-```
+`docs/architecture.md` has the diagram, the request path and a table of where
+each control is enforced. In short:
 
-- `backend/api` – REST API. Runs database migrations and demo seeding on start.
-- `backend/worker` – polls the `documents` table for pending uploads, extracts
-  PDF text, finds the figures, and saves them on the document and application.
-  Failed documents are retried up to 3 times, then marked "could not be read".
-- `backend/shared` – risk formulas and the figure parser (with unit tests:
-  `cd backend && cargo test -p shared`).
+- `src/api` – ForkLaunch Rust service: typed route contracts, cookie sessions,
+  role policy, field encryption, audit trail.
+- `src/extraction` – ForkLaunch worker on the leased PostgreSQL queue: reads a
+  PDF from object storage, finds the figures, saves them. Failures that can
+  pass are retried up to 3 times, then kept as dead letters; unreadable PDFs
+  are marked "could not be read".
+- `src/shared` – risk formulas and the figure parser.
 - `frontend` – React + TypeScript (Vite), served by nginx.
-- Uploaded PDFs live on a Docker volume shared by the API and worker.
+- `src/core`, `src/monitoring`, `src/client-sdk` – generated ForkLaunch
+  workspace libraries; `src/monitoring` holds dashboards, collector config and
+  alert rules.
+
+More: `docs/deployment.md`, `docs/migration.md`, `docs/data-classification.md`,
+`docs/runbooks/`, `docs/adr/`, `CHANGELOG.md`.
 
 ## Things you should know before relying on it
 
 **The risk summary is a placeholder, not credit policy.** With only three
-figures available, it is computed as (see `backend/shared/src/risk.rs`):
+figures available, it is computed as (see `src/shared/src/risk.rs`):
 
 - Total debt = existing debt from documents + requested amount
 - Annual debt service = level payment on total debt at 8% over 10 years
@@ -104,47 +118,37 @@ figures available, it is computed as (see `backend/shared/src/risk.rs`):
 - High if DSCR < 1.10 or leverage > 1.00; low if DSCR ≥ 1.50 and leverage ≤ 0.50;
   otherwise medium. No flag is shown until all three figures exist.
 
-**Figure extraction is simple label matching.** The worker looks for lines
-that start with labels such as "Total revenue", "Gross receipts or sales",
-"Net income", "Total debt" followed by an amount
-(`backend/shared/src/figures.rs`). It works on PDFs that contain text; it does
-not OCR scans, and it will miss documents that word things differently. When
-several documents are uploaded, a figure found in a later one replaces the
-earlier value. The UI shows what was read from each document so it can be
-checked against the source; there is no screen to correct a figure by hand.
+**Figure extraction is simple label matching** (`src/shared/src/figures.rs`).
+It works on PDFs that contain text; it does not OCR scans, and it will miss
+documents that word things differently. When several documents are uploaded, a
+figure found in a later one replaces the earlier value.
 
-**Handling of sensitive data**
+**Sensitive data.** Owner names, SSNs, dates of birth, the purpose text,
+decision notes and file names are encrypted field by field; screens show an
+SSN's last four digits; showing a full SSN, opening an application, downloading
+a document and every change are written to the append-only `audit_log` table
+(there is no screen for it yet). Passwords are Argon2id hashes. Sessions are
+HttpOnly, SameSite=Strict cookies that last 8 hours. Five failed sign-ins lock
+an account for 15 minutes. Uploads must be PDFs of at most 20 MB.
+Because names and purpose are encrypted, search matches them by whole word or
+by the first three or more letters of a word, not by any fragment.
 
-- Owner SSNs are encrypted in the database (AES-256-GCM); screens show the
-  last four digits, and showing a full SSN is written to the `audit_log` table.
-  Logins, uploads, downloads, decisions and user changes are logged there too
-  (there is no screen for the audit log yet; query the table).
-- Passwords are hashed with Argon2id. Sessions are HttpOnly, SameSite=Strict
-  cookies that last 8 hours. Five failed sign-ins lock an account for 15 minutes.
-- Uploads must be PDFs of at most 20 MB.
-- Dates of birth and the uploaded PDFs themselves are **not** encrypted by the
-  app; they rely on whatever disk/database encryption the host provides.
+**The Compose stack is for one machine.** For a real deployment see
+`docs/deployment.md`: with `APP_ENV=production` the API refuses to start with
+generated demo secrets, demo seeding, insecure cookies, a plaintext database
+connection or a non-HTTPS origin. With seeding off there are no users, so the
+first admin has to be inserted into the `users` table by hand; there is no
+bootstrap command for that yet.
 
-**The defaults are for local demos.** `docker-compose.yml` ships a known
-database password, a known SSN encryption key and the demo logins above. Before
-putting real borrower data in it, copy `.env.example` to `.env`, set
-`POSTGRES_PASSWORD` and `DATA_ENCRYPTION_KEY` (`openssl rand -base64 32`), set
-`SEED_DEMO_DATA=false`, put it behind HTTPS and set `APP_ENV=production` and
-`COOKIE_SECURE=true`. With `APP_ENV=production` the API refuses to start with
-the demo key, with demo seeding on, or without secure cookies. With seeding
-off there are no users, so the first admin has to be inserted into the `users`
-table by hand; there is no bootstrap command for that yet.
-
-**Not built** (not asked for, but you will likely want them): editing or
-deleting applications, password change/reset, deactivating users, single
-sign-on, an audit-log screen, backups.
+**Not built:** editing or deleting applications, password change/reset,
+deactivating users, single sign-on, an audit-log screen, a retention purge for
+applications, backups (a platform setting).
 
 ## Sample documents
 
-`sample-docs/` holds three small PDFs for the Cedar Ridge application (a
-financial statement, a tax return and a bank statement, which has no key
-figures in it). Regenerate them with:
+`sample-docs/` holds three small PDFs for the Cedar Ridge application.
+Regenerate them with:
 
 ```sh
-docker compose run --rm --no-deps -u "$(id -u)" -v "$PWD/sample-docs:/out" api loandesk-api gen-samples /out
+docker compose run --rm --no-deps --entrypoint /app/bin/api -u "$(id -u)" -v "$PWD/sample-docs:/out" api gen-samples /out
 ```

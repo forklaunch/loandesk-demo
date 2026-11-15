@@ -10,15 +10,26 @@ COPY ["Cargo.toml","/app/Cargo.toml"]
 COPY ["src/api/","/app/src/api/"]
 COPY ["src/client-sdk/","/app/src/client-sdk/"]
 COPY ["src/extraction/","/app/src/extraction/"]
+COPY ["src/shared/","/app/src/shared/"]
 ENV SQLX_OFFLINE=true
+# The commit this image was built from; reported in startup logs and /health.
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
 ARG CARGO_BUILD_JOBS=2
-RUN cargo build --locked --release --workspace --bins
+# Registry downloads retry instead of failing the build on a slow connection.
+ENV CARGO_NET_RETRY=10 CARGO_HTTP_MULTIPLEXING=false CARGO_HTTP_TIMEOUT=120
+# The registry and target directories are build caches, so a source change
+# recompiles only what it touched. Binaries are copied out of the cache mount.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo build --locked --release --workspace --bins \
+    && mkdir -p /app/out && cp target/release/api target/release/extraction /app/out/
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 ADD --chmod=0644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
 RUN chmod 0755 /app/certs
-COPY --from=builder /app/target/release/api /app/bin/api
-COPY --from=builder /app/target/release/extraction /app/bin/extraction
+COPY --from=builder /app/out/api /app/bin/api
+COPY --from=builder /app/out/extraction /app/bin/extraction
 ENV HOST=0.0.0.0 PROTOCOL=http PORT=8000 VERSION=v1 DOCS_PATH=/docs
 USER 65532:65532
