@@ -41,9 +41,38 @@ tokio::task_local! {
 pub fn request_id() -> String {
     SLOT.try_with(|slot| slot.request_id.clone()).unwrap_or_else(|_| "-".to_owned())
 }
-/// The caller's W3C trace context, forwarded into queued jobs.
+/// W3C trace context to hand to work this request starts elsewhere (queued
+/// jobs): the server span the ForkLaunch telemetry layer opened for the
+/// request, which is itself a child of the caller's `traceparent` when one was
+/// sent. Without a recorded span, the caller's own header is passed on.
 pub fn traceparent() -> Option<String> {
-    SLOT.try_with(|slot| slot.traceparent.clone()).ok().flatten()
+    span_traceparent(&opentelemetry::Context::current())
+        .or_else(|| SLOT.try_with(|slot| slot.traceparent.clone()).ok().flatten())
+}
+
+fn span_traceparent(context: &opentelemetry::Context) -> Option<String> {
+    use opentelemetry::trace::TraceContextExt;
+    let span = context.span();
+    let span = span.span_context();
+    span.is_valid().then(|| {
+        format!("00-{}-{}-{:02x}", span.trace_id(), span.span_id(), span.trace_flags().to_u8())
+    })
+}
+
+/// Accepts only a well-formed version-00 `traceparent`, so nothing else a
+/// client puts in that header can travel into job payloads or log lines.
+fn valid_traceparent(value: &str) -> bool {
+    let hex = |part: &str| part.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let parts: Vec<&str> = value.split('-').collect();
+    value.len() == 55
+        && parts.len() == 4
+        && parts[0] == "00"
+        && parts[1].len() == 32
+        && parts[2].len() == 16
+        && parts[3].len() == 2
+        && parts[1..].iter().all(|part| hex(part))
+        && parts[1].bytes().any(|b| b != b'0')
+        && parts[2].bytes().any(|b| b != b'0')
 }
 pub fn set_error_message(message: String) {
     let _ = SLOT.try_with(|slot| *slot.error_message.lock().expect("slot lock") = Some(message));
@@ -85,7 +114,7 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
             .headers()
             .get("traceparent")
             .and_then(|value| value.to_str().ok())
-            .filter(|value| value.len() <= 64)
+            .filter(|value| valid_traceparent(value))
             .map(str::to_owned),
         ..Slot::default()
     });
@@ -164,5 +193,42 @@ mod tests {
             "/api/applications/:id/decision"
         );
         assert_eq!(route_template("/api/users"), "/api/users");
+    }
+
+    #[test]
+    fn queued_work_inherits_the_trace_of_the_request_that_started_it() {
+        use opentelemetry::trace::{
+            SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState,
+        };
+        // No span is being recorded: there is nothing to hand on.
+        assert_eq!(traceparent(), None);
+        // Inside the request's server span, a job gets that span as its parent.
+        let request = opentelemetry::Context::new().with_remote_span_context(SpanContext::new(
+            TraceId::from_hex("0af7651916cd43dd8448eb211c80319c").unwrap(),
+            SpanId::from_hex("b7ad6b7169203331").unwrap(),
+            TraceFlags::SAMPLED,
+            false,
+            TraceState::default(),
+        ));
+        let _active = request.attach();
+        assert_eq!(
+            traceparent().as_deref(),
+            Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+        );
+    }
+
+    #[test]
+    fn only_a_well_formed_traceparent_header_is_accepted() {
+        assert!(valid_traceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"));
+        for junk in [
+            "",
+            "Eleanor Whitfield 900-55-1234",
+            "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+            "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+            "00-0AF7651916CD43DD8448EB211C80319C-b7ad6b7169203331-01",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra",
+        ] {
+            assert!(!valid_traceparent(junk), "{junk}");
+        }
     }
 }

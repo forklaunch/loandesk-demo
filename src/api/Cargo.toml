@@ -22,6 +22,10 @@ path = "__test__/http.rs"
 name = "persistence"
 path = "__test__/persistence.rs"
 
+[[test]]
+name = "logging"
+path = "__test__/logging.rs"
+
 [dependencies]
 contracts = { package = "api-contracts", path = ".forklaunch/contracts" }
 extraction-contracts = { path = "../extraction/.forklaunch/contracts" }
@@ -39,6 +43,7 @@ uuid = { version = "1", features = ["v4"] }
 forklaunch-infrastructure-s3 = { version = "=0.2.5", features = ["aws-sdk", "encryption"] }
 chrono = "0.4"
 tracing = "0.1"
+opentelemetry = "0.33"
 anyhow = "1"
 argon2 = "0.5"
 aes-gcm = "0.10"
@@ -52,6 +57,9 @@ base64 = "0.22"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# Log capture and the fake driver error for the "nothing sensitive is logged" tests.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+shared = { path = "../shared", features = ["testing"] }
 
 [[bin]]
 name = "api"

@@ -23,6 +23,10 @@ use uuid::Uuid;
 
 const DEFAULT_PAGE: i64 = 50;
 const MAX_PAGE: i64 = 100;
+/// An application is created with at most this many owners.
+const MAX_OWNERS: usize = 20;
+/// Upper bound on the owners read for one application, whatever the table holds.
+const OWNERS_READ_LIMIT: i64 = 100;
 
 /// The application columns every query selects, with a literal tail. A macro
 /// (not string formatting) so each statement stays a compile-time constant:
@@ -300,7 +304,7 @@ impl ApplicationsService {
         if body.requested_amount <= 0 || body.requested_amount > 1_000_000_000_000 {
             return Err(bad("Requested amount must be a positive dollar amount"));
         }
-        if body.owners.is_empty() || body.owners.len() > 20 {
+        if body.owners.is_empty() || body.owners.len() > MAX_OWNERS {
             return Err(bad("Add between 1 and 20 owners"));
         }
         let today = Utc::now().date_naive();
@@ -466,9 +470,10 @@ impl ApplicationsService {
         let members = &self.db.members;
         let rows = sqlx::query(
             "SELECT id, full_name_ciphertext, ssn_ciphertext, date_of_birth_ciphertext, ownership_percent
-             FROM owners WHERE application_id = $1 ORDER BY ownership_percent DESC, id",
+             FROM owners WHERE application_id = $1 ORDER BY ownership_percent DESC, id LIMIT $2",
         )
         .bind(application)
+        .bind(OWNERS_READ_LIMIT)
         .fetch_all(&mut **tx)
         .await
         .map_err(storage("load owners"))?;
@@ -634,10 +639,12 @@ impl ApplicationsService {
             .audit(&mut tx, Some(user.id), "application_decided", Some(id), Some(&body.decision))
             .await?;
         tx.commit().await.map_err(storage("decide application"))?;
+        // One of two fixed words, never the request text.
+        let outcome = if body.decision == "approved" { "approved" } else { "declined" };
         tracing::info!(
             event = "application_decided",
             application = %id,
-            decision = %body.decision,
+            decision = outcome,
             user_id = %user.id,
             request_id = %transport::request_id(),
             "application decided"

@@ -148,16 +148,16 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
                 result.retention.completed_purged, result.retention.failed_purged
             );
         }
-        let report = result.worker;
+        let summary = result.worker;
         // In-flight jobs were given WORKER_DRAIN_MS to finish before this line.
         tracing::info!(
             event = "shutdown_complete",
             service = WORKER_NAME,
-            completed = report.completed,
-            retried = report.retried,
-            dead_lettered = report.dead_lettered,
-            lease_lost = report.lease_lost,
-            abandoned = report.abandoned,
+            completed = summary.completed,
+            retried = summary.retried,
+            dead_lettered = summary.dead_lettered,
+            lease_lost = summary.lease_lost,
+            abandoned = summary.abandoned,
             "extraction worker drained and stopped"
         );
     }

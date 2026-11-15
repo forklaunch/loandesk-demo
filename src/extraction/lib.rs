@@ -30,3 +30,36 @@ pub fn version() -> String {
         None => env!("CARGO_PKG_VERSION").to_owned(),
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_logs {
+    //! Captures what a piece of code writes to the log, as text.
+    use std::{
+        io,
+        sync::{Arc, Mutex},
+    };
+
+    #[derive(Clone, Default)]
+    struct Buffer(Arc<Mutex<Vec<u8>>>);
+    impl io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().expect("log buffer").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    pub fn capture(run: impl FnOnce()) -> String {
+        let buffer = Buffer::default();
+        let writer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, run);
+        String::from_utf8(buffer.0.lock().expect("log buffer").clone()).expect("utf-8 log")
+    }
+}

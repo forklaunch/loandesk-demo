@@ -17,10 +17,17 @@ use forklaunch_core::{
 use forklaunch_infrastructure_s3::aws::AwsS3ObjectStore;
 use forklaunch_worker_database::runner::JobHandler;
 use forklaunch_worker_interface::Job;
-use opentelemetry::KeyValue;
+use opentelemetry::{
+    Context, KeyValue,
+    trace::{
+        FutureExt, SpanContext, SpanId, SpanKind, Status, TraceContextExt, TraceFlags, TraceId,
+        TraceState, Tracer,
+    },
+};
 use shared::{
     figures::{Figures, parse_figures},
-    storage::tenant_prefix,
+    logsafe,
+    storage::{MAX_UPLOAD_BYTES, tenant_prefix},
 };
 use sqlx::PgPool;
 use std::time::Instant;
@@ -51,11 +58,66 @@ enum Outcome {
 /// A failure that may succeed on a later attempt.
 struct Transient(&'static str);
 
-fn transient<E: std::fmt::Debug>(step: &'static str) -> impl FnOnce(E) -> Transient {
+/// Logs the failed step with a description of the error that is safe to log
+/// (`shared::logsafe`: never `Debug`, never a database message or detail).
+fn transient<E: std::fmt::Display + 'static>(step: &'static str) -> impl FnOnce(E) -> Transient {
     move |error| {
-        tracing::warn!(event = "job_step_failed", step, error_detail = ?error, "extraction step failed");
+        tracing::warn!(
+            event = "job_step_failed",
+            step,
+            error = %logsafe::describe(&error),
+            "extraction step failed"
+        );
         Transient(step)
     }
+}
+
+/// Adds one chunk of a stored file to `bytes`, refusing to hold more than the
+/// upload limit in memory whatever the object store returns.
+fn append_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> bool {
+    if (bytes.len() + chunk.len()) as u64 > MAX_UPLOAD_BYTES {
+        return false;
+    }
+    bytes.extend_from_slice(chunk);
+    true
+}
+
+/// The remote parent named by a W3C `traceparent` ("" or anything malformed
+/// gives none, and the job then starts its own trace).
+fn remote_parent(traceparent: &str) -> Option<SpanContext> {
+    let mut parts = traceparent.split('-');
+    let (version, trace, span, flags) =
+        (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    if version != "00" || parts.next().is_some() || flags.len() != 2 {
+        return None;
+    }
+    let context = SpanContext::new(
+        TraceId::from_hex(trace).ok()?,
+        SpanId::from_hex(span).ok()?,
+        TraceFlags::new(u8::from_str_radix(flags, 16).ok()?),
+        true,
+        TraceState::default(),
+    );
+    (trace.len() == 32 && span.len() == 16 && context.is_valid()).then_some(context)
+}
+
+/// Opens the span for one delivery of a job as a child of the request that
+/// queued it, so the request and its background work are one trace.
+fn job_context<T: Tracer>(tracer: &T, traceparent: &str, attempt: u32) -> Context
+where
+    T::Span: Send + Sync + 'static,
+{
+    let parent = remote_parent(traceparent)
+        .map_or_else(Context::new, |parent| Context::new().with_remote_span_context(parent));
+    let span = tracer
+        .span_builder("extraction.job")
+        .with_kind(SpanKind::Consumer)
+        .with_attributes([
+            KeyValue::new("job.type", JOB_TYPE),
+            KeyValue::new("job.attempt", i64::from(attempt)),
+        ])
+        .start_with_context(tracer, &parent);
+    parent.with_span(span)
 }
 
 impl ApplicationHandler {
@@ -119,7 +181,9 @@ impl ApplicationHandler {
         while let Some(chunk) =
             download.next_chunk().await.map_err(transient("read stored file"))?
         {
-            bytes.extend_from_slice(&chunk);
+            if !append_chunk(&mut bytes, &chunk) {
+                return Ok(Outcome::Unreadable("the stored file is larger than the 20 MB limit"));
+            }
         }
 
         // PDF parsing is CPU-bound and can panic on malformed files; running it
@@ -187,7 +251,7 @@ impl ApplicationHandler {
         }
         .await;
         if let Err(error) = result {
-            tracing::error!(event = "job_status_not_saved", document = %document, error_detail = ?error, "could not record the document status");
+            tracing::error!(event = "job_status_not_saved", document = %document, error = %logsafe::describe(&error), "could not record the document status");
         }
     }
 
@@ -210,15 +274,24 @@ impl JobHandler for ApplicationHandler {
         let (document, application) = (event.input.resource_id, event.input.application_id);
         let attempt = job.attempts.max(1);
         // The id and trace context of the request that queued this job are on
-        // every log line the job writes, so the two can be followed as one.
+        // every log line the job writes, and the job's span is a child of that
+        // request's span, so the two can be followed as one trace.
+        let (queued_by, traceparent) =
+            (event.input.request_id.clone(), event.input.traceparent.clone());
+        let trace = job_context(
+            &opentelemetry::global::tracer("loandesk.extraction"),
+            &traceparent,
+            attempt,
+        );
         let span = tracing::info_span!(
             "extraction_job",
             job_id = %job.id,
             job_type = JOB_TYPE,
             attempt,
-            request_id = %event.input.request_id,
-            traceparent = %event.input.traceparent,
+            request_id = %queued_by,
+            traceparent = %traceparent,
         );
+        let traced = trace.clone();
         async {
             match self.run(document, application, attempt).await {
                 Ok(Outcome::Extracted(figures)) => {
@@ -268,6 +341,85 @@ impl JobHandler for ApplicationHandler {
             }
         }
         .instrument(span)
+        .with_context(trace)
         .await
+        .inspect(|()| traced.span().end())
+        .inspect_err(|error| {
+            traced.span().set_status(Status::error(error.code.clone()));
+            traced.span().end();
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::trace::noop::NoopTracer;
+
+    const REQUEST: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+    #[test]
+    fn a_job_continues_the_trace_of_the_request_that_queued_it() {
+        let context = job_context(&NoopTracer::new(), REQUEST, 1);
+        let span = context.span();
+        let span = span.span_context();
+        assert!(span.is_valid());
+        assert_eq!(span.trace_id().to_string(), "0af7651916cd43dd8448eb211c80319c");
+        assert!(span.is_sampled());
+    }
+
+    #[test]
+    fn a_job_without_usable_trace_context_starts_its_own_trace() {
+        let parent = remote_parent(REQUEST).expect("valid traceparent");
+        assert!(parent.is_remote());
+        assert_eq!(parent.span_id().to_string(), "b7ad6b7169203331");
+        for junk in [
+            "",
+            "not-a-traceparent",
+            "00-00000000000000000000000000000000-b7ad6b7169203331-01",
+            "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01",
+            "01-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-x",
+        ] {
+            assert!(remote_parent(junk).is_none(), "{junk}");
+        }
+        assert!(!job_context(&NoopTracer::new(), "", 1).span().span_context().is_valid());
+    }
+
+    #[test]
+    fn a_stored_file_is_never_held_in_memory_beyond_the_upload_limit() {
+        let limit = usize::try_from(MAX_UPLOAD_BYTES).unwrap();
+        let mut bytes = vec![0; limit - 2];
+        assert!(append_chunk(&mut bytes, &[1, 2]));
+        assert_eq!(bytes.len(), limit);
+        assert!(!append_chunk(&mut bytes, &[3]));
+        assert_eq!(bytes.len(), limit, "the refused chunk was not kept");
+    }
+
+    #[test]
+    fn a_failed_step_is_logged_without_row_contents() {
+        use shared::logsafe::testing::{ROW_VALUES, row_violation};
+        let logs = crate::test_logs::capture(|| {
+            let Transient(step) = transient("save figures")(row_violation());
+            assert_eq!(step, "save figures");
+        });
+        assert!(logs.contains("job_step_failed") && logs.contains("sqlstate=23514"), "{logs}");
+        for value in ROW_VALUES {
+            assert!(!logs.contains(value), "`{value}` was written to the log: {logs}");
+        }
+    }
+
+    #[test]
+    fn the_sample_documents_still_yield_their_figures() {
+        // Guards the PDF parser upgrade: the generated financial statement
+        // must read the same as before.
+        let (_, bytes) = shared::pdfgen::sample_documents()
+            .into_iter()
+            .find(|(name, _)| name.contains("financial-statement"))
+            .expect("sample financial statement");
+        let text = pdf_extract::extract_text_from_mem(&bytes).expect("readable PDF");
+        let figures = parse_figures(&text);
+        assert!(figures.revenue.is_some() && figures.net_income.is_some());
+        assert!(figures.total_debt.is_some());
     }
 }

@@ -43,7 +43,7 @@ version = "1"
 
 [dependencies]
 shared = { path = "../shared" }
-pdf-extract = "0.7"
+pdf-extract = "0.12"
 tracing = "0.1"
 opentelemetry = "0.33"
 forklaunch-infrastructure-s3 = { version = "=0.2.5", features = ["aws-sdk"] }
@@ -124,6 +124,18 @@ features = [
     "v4",
 ]
 version = "1"
+
+[dev-dependencies.shared]
+features = ["testing"]
+path = "../shared"
+
+[dev-dependencies.tracing-subscriber]
+default-features = false
+features = [
+    "fmt",
+    "std",
+]
+version = "0.3"
 
 [dev-dependencies.tower]
 features = ["util"]

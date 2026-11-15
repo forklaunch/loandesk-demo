@@ -10,3 +10,9 @@ authors.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 regex = "1"
+# Only the error type, to describe driver errors safely for logs (no driver is enabled here).
+sqlx = { version = "0.9", default-features = false }
+
+[features]
+# Test helpers for the services' own log tests (see logsafe::testing).
+testing = []
