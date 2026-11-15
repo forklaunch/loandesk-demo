@@ -5,3 +5,11 @@
  */
 
 pub mod health;
+
+pub mod auth;
+
+pub mod applications;
+
+pub mod documents;
+
+pub mod users;

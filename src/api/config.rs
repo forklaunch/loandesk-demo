@@ -124,3 +124,123 @@ impl Default for ServiceConfig {
 fn csv_values(value: &str) -> Vec<String> {
     value.split(',').map(str::trim).filter(|part| !part.is_empty()).map(str::to_string).collect()
 }
+
+/// LoanDesk's own settings, beside the framework's service settings above.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// `APP_ENV=production` turns every local-demo allowance into a startup error.
+    pub production: bool,
+    /// Session cookies are marked `Secure` and HSTS is sent. Required in production.
+    pub cookie_secure: bool,
+    pub session_hours: i32,
+    /// Create the demo users and applications on an empty database.
+    pub seed_demo: bool,
+    /// Admin routes refuse admins who have not enrolled a second factor.
+    /// Defaults to on in production and off for the local demo.
+    pub mfa_required_for_admins: bool,
+    /// Set by the local Compose stack, whose secrets are generated on first
+    /// start. Never valid in production.
+    pub demo_secrets: bool,
+}
+
+fn flag(name: &str) -> Result<Option<bool>> {
+    match config::optional::<String>(name)?.as_deref() {
+        None | Some("") => Ok(None),
+        Some("true" | "1") => Ok(Some(true)),
+        Some("false" | "0") => Ok(Some(false)),
+        Some(_) => Err(AppError::InvalidConfig(format!("{name} must be true or false"))),
+    }
+}
+
+impl Settings {
+    pub fn from_env() -> Result<Self> {
+        let production = config::optional::<String>("APP_ENV")?.as_deref() == Some("production");
+        Ok(Self {
+            production,
+            cookie_secure: flag("COOKIE_SECURE")?.unwrap_or(production),
+            session_hours: config::optional("SESSION_HOURS")?.unwrap_or(8),
+            seed_demo: flag("SEED_DEMO_DATA")?.unwrap_or(false),
+            mfa_required_for_admins: flag("MFA_REQUIRED_FOR_ADMINS")?.unwrap_or(production),
+            demo_secrets: flag("DEMO_SECRETS")?.unwrap_or(false),
+        })
+    }
+
+    /// Everything that is acceptable on a laptop and not in a deployment is
+    /// refused here, at startup, when `APP_ENV=production`.
+    pub fn validate(&self, service: &ServiceConfig, plaintext_database: bool) -> Result<()> {
+        if !(1..=24).contains(&self.session_hours) {
+            return Err(AppError::InvalidConfig("SESSION_HOURS must be between 1 and 24".into()));
+        }
+        if !self.production {
+            return Ok(());
+        }
+        let refuse = |reason: &str| {
+            Err(AppError::InvalidConfig(format!("refusing to start in production: {reason}")))
+        };
+        if self.demo_secrets {
+            return refuse("the generated local-demo secrets are in use (DEMO_SECRETS)");
+        }
+        if self.seed_demo {
+            return refuse("demo logins would be seeded (unset SEED_DEMO_DATA)");
+        }
+        if !self.cookie_secure {
+            return refuse("COOKIE_SECURE must be true (serve over HTTPS)");
+        }
+        if plaintext_database {
+            return refuse(
+                "DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT must be false (the database connection must use verified TLS)",
+            );
+        }
+        if !service.origin().starts_with("https://") {
+            return refuse("PUBLIC_ORIGIN must be an https:// origin");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn production() -> Settings {
+        Settings {
+            production: true,
+            cookie_secure: true,
+            session_hours: 8,
+            seed_demo: false,
+            mfa_required_for_admins: true,
+            demo_secrets: false,
+        }
+    }
+    fn https() -> ServiceConfig {
+        ServiceConfig {
+            public_origin: Some("https://loandesk.example".into()),
+            ..ServiceConfig::default()
+        }
+    }
+
+    #[test]
+    fn production_refuses_every_local_demo_allowance() {
+        assert!(production().validate(&https(), false).is_ok());
+        assert!(Settings { demo_secrets: true, ..production() }.validate(&https(), false).is_err());
+        assert!(Settings { seed_demo: true, ..production() }.validate(&https(), false).is_err());
+        assert!(
+            Settings { cookie_secure: false, ..production() }.validate(&https(), false).is_err()
+        );
+        assert!(production().validate(&https(), true).is_err(), "plaintext database connection");
+        assert!(production().validate(&ServiceConfig::default(), false).is_err(), "http origin");
+    }
+
+    #[test]
+    fn the_same_allowances_are_fine_for_a_local_demo() {
+        let demo = Settings {
+            production: false,
+            cookie_secure: false,
+            seed_demo: true,
+            mfa_required_for_admins: false,
+            demo_secrets: true,
+            session_hours: 8,
+        };
+        assert!(demo.validate(&ServiceConfig::default(), true).is_ok());
+    }
+}

@@ -12,3 +12,5 @@ license.workspace = true
 path = "lib.rs"
 [dependencies]
 forklaunch-core = { version = "=0.2.5", features = ["typed-schema"] }
+# Optional and nullable schema fields expand to serde attributes.
+serde = { version = "1", features = ["derive"] }

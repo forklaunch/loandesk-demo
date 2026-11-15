@@ -1,0 +1,12 @@
+[package]
+name = "shared"
+description = "LoanDesk domain logic shared by the API and the extraction worker: risk summary, figure parser, demo PDF writer"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+regex = "1"
