@@ -1,0 +1,20 @@
+{
+  "name": "@forklaunch-generated/extraction-events",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./events.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "@types/node": "22.10.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

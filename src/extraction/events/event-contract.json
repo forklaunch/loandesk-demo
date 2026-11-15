@@ -1,0 +1,131 @@
+{
+  "format": "forklaunch.worker-events.v1",
+  "worker": "extraction",
+  "channel": "work-v1",
+  "transport": "authenticated-encrypted-event",
+  "input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "WorkInput",
+    "type": "object",
+    "properties": {
+      "resourceId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "revision": {
+        "type": "integer",
+        "format": "int64",
+        "minimum": 1,
+        "maximum": 9007199254740991
+      },
+      "message": {
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "resourceId",
+      "revision",
+      "message"
+    ],
+    "x-forklaunch-model": {
+      "version": 1,
+      "id": "extraction_contracts::jobs::WorkInput",
+      "name": "WorkInput",
+      "projection": "value"
+    }
+  },
+  "event": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "WorkEvent",
+    "type": "object",
+    "properties": {
+      "context": {
+        "$ref": "#/$defs/JobContext"
+      },
+      "queue": {
+        "type": "string"
+      },
+      "input": {
+        "$ref": "#/$defs/WorkInput"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "context",
+      "queue",
+      "input"
+    ],
+    "x-forklaunch-model": {
+      "version": 1,
+      "id": "extraction_contracts::jobs::WorkEvent",
+      "name": "WorkEvent",
+      "projection": "value"
+    },
+    "$defs": {
+      "JobContext": {
+        "description": "Public routing metadata, checked against the authenticated inner payload.\nRevision is a positive application version, not the queue's retry counter.",
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "resourceId",
+          "operationId",
+          "revision"
+        ]
+      },
+      "WorkInput": {
+        "type": "object",
+        "properties": {
+          "resourceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "resourceId",
+          "revision",
+          "message"
+        ],
+        "x-forklaunch-model": {
+          "version": 1,
+          "id": "extraction_contracts::jobs::WorkInput",
+          "name": "WorkInput",
+          "projection": "value"
+        }
+      }
+    }
+  },
+  "typescriptTransport": "Node crypto HKDF-SHA256 AES-256-GCM v3",
+  "consumerAudit": "durable-metadata-acknowledgment-before-plaintext-release"
+}

@@ -7,8 +7,12 @@ key figures out of the PDFs, and credit officers approve or decline.
 ## Run it
 
 ```sh
-docker compose up --build
+docker compose -f docker-compose.yml up --build
 ```
+
+(While the backend is being moved onto ForkLaunch, `docker-compose.yml` is the
+original stack and `docker-compose.yaml` is the ForkLaunch scaffold. The
+explicit `-f` keeps the original stack running until the cutover commit.)
 
 Then open **http://localhost:41080**. The first build compiles the Rust
 services and takes a few minutes.

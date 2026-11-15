@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = [
+    "src/api",
+    "src/api/.forklaunch/contracts",
+    "src/api/sdk/rust",
+    "src/extraction",
+    "src/extraction/.forklaunch/contracts",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "none"
+authors = ["LoanDesk"]
