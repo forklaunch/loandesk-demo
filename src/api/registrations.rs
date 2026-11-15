@@ -2,7 +2,8 @@ use crate::{
     config::{ServiceConfig, Settings},
     document_store::DocumentStore,
     domain::services::{
-        ApplicationsService, AuthService, DocumentsService, HealthService, UsersService,
+        ApplicationsService, AuthService, BrowserErrors, DocumentsService, HealthService,
+        UsersService,
     },
     error::Result,
     extraction_queue::ExtractionQueue,
@@ -25,6 +26,7 @@ pub struct AppState {
     pub applications: ApplicationsService,
     pub documents: DocumentsService,
     pub users: UsersService,
+    pub browser_errors: BrowserErrors,
     pub telemetry: OpenTelemetryCollector,
 }
 
@@ -47,6 +49,7 @@ pub async fn register(config: ServiceConfig) -> Result<AppState> {
             queue.clone(),
         ),
         users: UsersService::new(db.clone()),
+        browser_errors: BrowserErrors::new(),
         applications,
         telemetry,
         queue,

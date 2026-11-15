@@ -6,6 +6,7 @@
 
 pub mod applications;
 pub mod auth;
+pub mod browser_errors;
 pub mod documents;
 pub mod users;
 

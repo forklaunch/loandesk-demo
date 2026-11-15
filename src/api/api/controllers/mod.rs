@@ -8,6 +8,8 @@ pub mod health;
 
 pub mod auth;
 
+pub mod browser_errors;
+
 pub mod applications;
 
 pub mod documents;

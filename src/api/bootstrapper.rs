@@ -64,13 +64,15 @@ async fn start(arguments: Vec<String>) -> ApplicationResult {
     let stopping = Shutdown::new();
     let signal = stopping.clone();
     let db = state.db.clone();
+    let health = state.health.clone();
     let result = server::serve(state, listener, async move {
-        // SIGTERM or Ctrl-C: stop accepting, drain in-flight requests.
+        // SIGTERM or Ctrl-C: report not-ready, stop accepting, drain in-flight requests.
         signal.signal().await;
+        health.begin_drain();
         tracing::info!(
             event = "shutdown_started",
             service = "api",
-            "shutdown signal received; draining in-flight requests"
+            "shutdown signal received; readiness now fails; draining in-flight requests"
         );
     })
     .await;

@@ -178,6 +178,32 @@ pub struct ApplicationExport {
     ::serde::Deserialize
 )]
 #[serde(deny_unknown_fields)]
+pub struct BrowserErrorReport {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "class")]
+    pub class: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "release")]
+    pub release: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "screen")]
+    pub screen: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "stack")]
+    pub stack: String,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
 pub struct CompleteDocumentUploadParams {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "id")]
@@ -1056,6 +1082,7 @@ pub type ListUsersQueryField0 = i64;
 pub type ListUsersQueryField1 = String;
 pub type ListUsersResponseItem = User;
 pub type NewApplicationOwnersItem = NewOwner;
+pub type ReportBrowserErrorRequestBody = BrowserErrorReport;
 pub type RequestDocumentUploadParamsField0 = String;
 pub type RequestDocumentUploadRequestBody = NewDocument;
 pub type RevealOwnerSsnParamsField0 = String;
@@ -1492,6 +1519,50 @@ impl<T> fmt::Debug for ConfirmTwoFactorEnrolmentRequest<T> {
 }
 #[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
 pub enum ConfirmTwoFactorEnrolmentResponses {
+    Status200(Box<Ok>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct ReportBrowserErrorRequest<T = ReportBrowserErrorRequestBody> {
+    pub params: BTreeMap<String, String>,
+    pub query: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+    pub body: Option<T>,
+}
+impl<T> Default for ReportBrowserErrorRequest<T> {
+    fn default() -> Self {
+        Self {
+            params: Default::default(),
+            query: Default::default(),
+            headers: Default::default(),
+            body: None,
+        }
+    }
+}
+impl<T> fmt::Debug for ReportBrowserErrorRequest<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReportBrowserErrorRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .field("has_body", &self.body.is_some())
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum ReportBrowserErrorResponses {
     Status200(Box<Ok>),
     Status400(Box<EndpointFailure>),
     Status401(Box<EndpointFailure>),

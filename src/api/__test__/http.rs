@@ -157,3 +157,22 @@ fn creating_an_application_accepts_an_idempotency_key() {
         .collect();
     assert_eq!(headers, ["idempotency-key"]);
 }
+
+#[test]
+fn browser_error_reports_need_a_session_and_have_no_field_for_the_message() {
+    let route = route("Report Browser Error");
+    assert_eq!(route.path, "/api/client-errors");
+    assert_ne!(route.access, AccessLevel::Public);
+    let body = route
+        .request
+        .body
+        .as_ref()
+        .and_then(|body| body.schema.json_schema.clone())
+        .expect("the report has a declared body");
+    for field in ["kind", "class", "screen", "stack", "release"] {
+        assert!(body.contains(&format!("\"{field}\"")), "missing {field}");
+    }
+    // An error message can quote what a user typed, so it cannot be sent at all.
+    assert!(!body.contains("\"message\""), "{body}");
+    assert!(body.contains("\"additionalProperties\":false"), "{body}");
+}

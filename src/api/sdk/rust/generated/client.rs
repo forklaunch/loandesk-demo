@@ -2063,6 +2063,188 @@ impl Client {
         }
     }
     /// Serialize a schema-typed body before constructing the transport request.
+    pub fn report_browser_error_request(
+        &self,
+        input: ReportBrowserErrorRequest,
+    ) -> Result<SdkRequest, serde_json::Error> {
+        Ok(
+            self
+                .report_browser_error_raw_request(ReportBrowserErrorRequest::<String> {
+                    params: input.params,
+                    query: input.query,
+                    headers: input.headers,
+                    body: input
+                        .body
+                        .map(|body| serde_json::to_string(&body))
+                        .transpose()?,
+                }),
+        )
+    }
+    /// Execute a schema-typed request. Raw encoded bytes require the explicit `_raw` method.
+    pub async fn report_browser_error(
+        &self,
+        input: ReportBrowserErrorRequest,
+    ) -> Result<ReportBrowserErrorResponses, SdkError> {
+        let input = ReportBrowserErrorRequest::<String> {
+            params: input.params,
+            query: input.query,
+            headers: input.headers,
+            body: input
+                .body
+                .map(|body| serde_json::to_string(&body))
+                .transpose()
+                .map_err(SdkError::Encode)?,
+        };
+        self.report_browser_error_raw(input).await
+    }
+    /// Construct a transport request from explicitly encoded wire data.
+    #[must_use]
+    pub fn report_browser_error_raw_request(
+        &self,
+        input: ReportBrowserErrorRequest<String>,
+    ) -> SdkRequest {
+        let path = runtime::path_with_params("/api/client-errors", &input.params);
+        SdkRequest {
+            method: "POST",
+            url: format!("{}{}", self.runtime.base_url(), path),
+            query: input.query,
+            headers: input.headers,
+            body: input.body,
+            body_bytes: None,
+            multipart: None,
+            content_type: "application/json",
+        }
+    }
+    pub async fn report_browser_error_raw(
+        &self,
+        input: ReportBrowserErrorRequest<String>,
+    ) -> Result<ReportBrowserErrorResponses, SdkError> {
+        let request = self.report_browser_error_raw_request(input);
+        let response = self.runtime.execute(request).await?;
+        let status = response.status().as_u16();
+        let _content_type = runtime::response_content_type(&response)?;
+        match status {
+            200 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::SIGN_OUT_STATUS200_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status200(body))
+            }
+            400 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status400(body))
+            }
+            401 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status401(body))
+            }
+            403 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status403(body))
+            }
+            404 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status404(body))
+            }
+            408 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status408(body))
+            }
+            409 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status409(body))
+            }
+            413 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status413(body))
+            }
+            415 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status415(body))
+            }
+            429 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status429(body))
+            }
+            500 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status500(body))
+            }
+            502 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status502(body))
+            }
+            503 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReportBrowserErrorResponses::Status503(body))
+            }
+            _ => Err(SdkError::Contract("undeclared response status or content type")),
+        }
+    }
+    /// Serialize a schema-typed body before constructing the transport request.
     pub fn request_document_upload_request(
         &self,
         input: RequestDocumentUploadRequest,

@@ -95,6 +95,14 @@ export type ApplicationExportDocumentsItem = Document;
 
 export type ApplicationExportOwnersItem = Owner;
 
+export type BrowserErrorReport = {
+  class: string;
+  kind: string;
+  release: string;
+  screen: string;
+  stack: string
+};
+
 export type Created = {
   id: string;
   reference: string
@@ -532,6 +540,27 @@ export type ConfirmTwoFactorEnrolmentResponse =
     >
   | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
 
+export type ReportBrowserErrorRequest = ForkLaunchSdkRequest<
+  never,
+  never,
+  BrowserErrorReport,
+  ForkLaunchHeaders
+>;
+
+export type ReportBrowserErrorResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: Ok;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
 export type RequestDocumentUploadRequest = ForkLaunchSdkRequest<
   {
     "id": string
@@ -749,6 +778,7 @@ export type ApiSdkClient = {
     currentUser: (input?: CurrentUserRequest) => Promise<CurrentUserResponse>;
     startTwoFactorEnrolment: (input?: StartTwoFactorEnrolmentRequest) => Promise<StartTwoFactorEnrolmentResponse>;
     confirmTwoFactorEnrolment: (input: ConfirmTwoFactorEnrolmentRequest) => Promise<ConfirmTwoFactorEnrolmentResponse>;
+    reportBrowserError: (input: ReportBrowserErrorRequest) => Promise<ReportBrowserErrorResponse>;
     requestDocumentUpload: (input: RequestDocumentUploadRequest) => Promise<RequestDocumentUploadResponse>;
     completeDocumentUpload: (input: CompleteDocumentUploadRequest) => Promise<CompleteDocumentUploadResponse>;
     downloadDocument: (input: DownloadDocumentRequest) => Promise<DownloadDocumentResponse>;

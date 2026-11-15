@@ -1,10 +1,12 @@
 mod applications;
 mod auth;
+mod browser_errors;
 mod documents;
 mod health;
 mod users;
 pub use applications::ApplicationsService;
 pub use auth::AuthService;
+pub use browser_errors::BrowserErrors;
 pub use documents::DocumentsService;
 pub use health::{HealthService, version};
 pub use users::{MIN_PASSWORD_LEN, UsersService};

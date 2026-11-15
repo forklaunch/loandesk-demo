@@ -1,9 +1,11 @@
 import { Component, ErrorInfo, ReactNode } from "react";
+import { reportError } from "./errorReporting";
 
 /**
  * Keeps a rendering error from blanking the whole app: shows a fallback and
- * records the error. Only the error name, message and component stack are
- * recorded: never form contents or anything a user typed.
+ * reports the error (see errorReporting.ts). Only the error class and the
+ * component stack are reported: never the message, form contents or anything
+ * a user typed.
  */
 export default class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -13,7 +15,8 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, { 
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("LoanDesk render error", { name: error.name, message: error.message, stack: info.componentStack });
+    console.error("LoanDesk render error", { name: error.name, stack: info.componentStack });
+    reportError("render", error, info.componentStack);
   }
 
   render() {

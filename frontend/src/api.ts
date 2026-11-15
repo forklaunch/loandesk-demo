@@ -80,6 +80,23 @@ export const DOC_TYPE_LABELS: Record<string, string> = {
   financial_statement: "Financial statement",
 };
 
+/** The API answers within 30 seconds or gives up; the browser waits a little longer. */
+const REQUEST_TIMEOUT_MS = 35_000;
+/** An upload grant is valid for five minutes. */
+const UPLOAD_TIMEOUT_MS = 300_000;
+
+/** Every call the app makes has a deadline, so a stalled connection ends in a message, not a spinner. */
+async function withTimeout(ms: number, call: (signal: AbortSignal) => Promise<Response>): Promise<Response> {
+  try {
+    return await call(AbortSignal.timeout(ms));
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error("The server took too long to answer. Check your connection and try again.");
+    }
+    throw error;
+  }
+}
+
 async function request(
   method: string,
   path: string,
@@ -93,7 +110,9 @@ async function request(
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
   }
-  const res = await fetch("/api" + path, { method, headers, body: payload, credentials: "same-origin" });
+  const res = await withTimeout(REQUEST_TIMEOUT_MS, (signal) =>
+    fetch("/api" + path, { method, headers, body: payload, credentials: "same-origin", signal }),
+  );
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const data = isJson ? await res.json() : null;
   if (!res.ok) {
@@ -151,7 +170,9 @@ export async function uploadDocument(applicationId: string, docType: string, fil
   for (const [name, value] of Object.entries(grant.fields)) form.append(name, value);
   // Storage requires the declared type; the API verifies the real content afterwards.
   form.append("file", new Blob([file], { type: "application/pdf" }), "document.pdf");
-  const stored = await fetch(grant.url, { method: "POST", body: form, credentials: "omit" });
+  const stored = await withTimeout(UPLOAD_TIMEOUT_MS, (signal) =>
+    fetch(grant.url, { method: "POST", body: form, credentials: "omit", signal }),
+  );
   if (!stored.ok) {
     throw new Error(stored.status === 400 || stored.status === 413 ? TOO_LARGE : "The upload was interrupted. Try again.");
   }

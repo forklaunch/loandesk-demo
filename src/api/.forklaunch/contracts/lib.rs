@@ -9,6 +9,10 @@ forklaunch_core::contract::controller_contract!(
     "../../api/controllers/applications.rs"
 );
 forklaunch_core::contract::controller_contract!(auth, "../../api/controllers/auth.rs");
+forklaunch_core::contract::controller_contract!(
+    browser_errors,
+    "../../api/controllers/browser_errors.rs"
+);
 forklaunch_core::contract::controller_contract!(documents, "../../api/controllers/documents.rs");
 forklaunch_core::contract::controller_contract!(health, "../../api/controllers/health.rs");
 forklaunch_core::contract::controller_contract!(users, "../../api/controllers/users.rs");
@@ -17,6 +21,7 @@ pub fn routes() -> Vec<forklaunch_core::contract::RouteContract> {
     let mut routes = Vec::new();
     routes.extend(applications::contract::registry().routes().iter().cloned());
     routes.extend(auth::contract::registry().routes().iter().cloned());
+    routes.extend(browser_errors::contract::registry().routes().iter().cloned());
     routes.extend(documents::contract::registry().routes().iter().cloned());
     routes.extend(health::contract::registry().routes().iter().cloned());
     routes.extend(users::contract::registry().routes().iter().cloned());
@@ -36,6 +41,7 @@ pub fn binding_manifest()
     let mut declarations = Vec::new();
     declarations.extend(applications::contract::binding_manifest()?);
     declarations.extend(auth::contract::binding_manifest()?);
+    declarations.extend(browser_errors::contract::binding_manifest()?);
     declarations.extend(documents::contract::binding_manifest()?);
     declarations.extend(health::contract::binding_manifest()?);
     declarations.extend(users::contract::binding_manifest()?);
