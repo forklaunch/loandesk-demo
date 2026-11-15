@@ -19,4 +19,14 @@ pub use registrations::{
     WORKER_NAME, WORKER_VERSION, WorkerContext, build_context, contract_registry, run_once,
     write_contract_artifacts,
 };
+pub mod monitor;
 pub mod signals;
+pub mod storage;
+
+/// Version and, when the image was built with one, the commit it came from.
+pub fn version() -> String {
+    match option_env!("GIT_SHA").filter(|sha| !sha.is_empty()) {
+        Some(sha) => format!("{}+{sha}", env!("CARGO_PKG_VERSION")),
+        None => env!("CARGO_PKG_VERSION").to_owned(),
+    }
+}

@@ -6,7 +6,7 @@
 
 use crate::signals;
 use crate::{WORKER_NAME, events, handler::ApplicationHandler};
-use forklaunch_core::{config, persistence::TenantContext};
+use forklaunch_core::{config, persistence::TenantContext, telemetry::OpenTelemetryCollector};
 use forklaunch_worker_database::http::HttpConfig;
 use forklaunch_worker_database::retention::RetentionPolicy;
 use forklaunch_worker_database::{postgres::PostgresWorkerQueue, runner::RunnerConfig};
@@ -44,7 +44,16 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     let url = config::required::<String>("DATABASE_URL")?;
     events::transport_policy()?.postgres(&url)?;
     let pool = PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(5)
+        // A saturated pool fails the attempt (and the job is retried) instead of hanging.
+        .acquire_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(300))
+        // No statement may run longer than this, whatever the handler does.
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SET statement_timeout = '30s'").execute(connection).await.map(|_| ())
+            })
+        })
         .connect(&url)
         .await
         .map_err(|_| "Unable to connect to PostgreSQL")?;
@@ -106,16 +115,33 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         config.validate()?;
         let retention = retention_policy()?;
         let http = http_config()?;
-        println!("{} worker ready", WORKER_NAME);
-        let result = signals::run(
-            &queue,
-            &ApplicationHandler,
-            &config,
-            retention.as_ref(),
-            http.as_ref(),
-            shutdown(),
-        )
-        .await?;
+        let telemetry = OpenTelemetryCollector::new(WORKER_NAME);
+        let handler = ApplicationHandler::new(
+            pool.clone(),
+            TenantContext::new(config::required::<String>("TENANT_ID")?)?,
+            crate::storage::object_store().await?,
+            policy.max_attempts,
+            telemetry.clone(),
+        )?;
+        tracing::info!(
+            event = "startup",
+            service = WORKER_NAME,
+            version = %crate::version(),
+            queue = %config.queue,
+            concurrency = config.concurrency,
+            max_attempts = policy.max_attempts,
+            backoff_seconds = policy.backoff_seconds,
+            "extraction worker ready"
+        );
+        // Queue depth and dead letters are exported every 15 seconds, so a
+        // stuck worker or a pile of failed jobs shows up before users notice.
+        let monitor =
+            tokio::spawn(crate::monitor::run(queue.clone(), config.queue.clone(), telemetry));
+        let result =
+            signals::run(&queue, &handler, &config, retention.as_ref(), http.as_ref(), shutdown())
+                .await;
+        monitor.abort();
+        let result = result?;
         if retention.is_some() {
             println!(
                 "retention stopped: completed_purged={} failed_purged={}",
@@ -123,13 +149,16 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
             );
         }
         let report = result.worker;
-        println!(
-            "worker stopped: completed={} retried={} dead_lettered={} lease_lost={} abandoned={}",
-            report.completed,
-            report.retried,
-            report.dead_lettered,
-            report.lease_lost,
-            report.abandoned
+        // In-flight jobs were given WORKER_DRAIN_MS to finish before this line.
+        tracing::info!(
+            event = "shutdown_complete",
+            service = WORKER_NAME,
+            completed = report.completed,
+            retried = report.retried,
+            dead_lettered = report.dead_lettered,
+            lease_lost = report.lease_lost,
+            abandoned = report.abandoned,
+            "extraction worker drained and stopped"
         );
     }
     pool.close().await;
@@ -181,6 +210,11 @@ async fn shutdown() {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         {
             tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = signal.recv() => {} }
+            tracing::info!(
+                event = "shutdown_started",
+                service = WORKER_NAME,
+                "shutdown signal received; finishing in-flight jobs"
+            );
             return;
         }
     }

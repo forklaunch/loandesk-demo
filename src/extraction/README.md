@@ -78,7 +78,7 @@ key is provided. Keep credentials outside source control.
 `--enqueue` accepts a UUID operation ID and this typed JSON input:
 
 ```sh
-cargo run -- --enqueue 22222222-2222-4222-8222-222222222222 '{"resourceId":"33333333-3333-4333-8333-333333333333","revision":1,"message":"example work"}'
+cargo run -- --enqueue 22222222-2222-4222-8222-222222222222 '{"resourceId":"33333333-3333-4333-8333-333333333333","revision":1,"applicationId":"44444444-4444-4444-8444-444444444444","requestId":"manual","traceparent":""}'
 ```
 
 The event boundary encrypts the input before the broker stores it. The worker

@@ -42,6 +42,11 @@ features = [
 version = "1"
 
 [dependencies]
+shared = { path = "../shared" }
+pdf-extract = "0.7"
+tracing = "0.1"
+opentelemetry = "0.33"
+forklaunch-infrastructure-s3 = { version = "=0.2.5", features = ["aws-sdk"] }
 axum = "0.8"
 serde_json = "1"
 zeroize = "1"
@@ -65,6 +70,7 @@ features = [
     "otlp",
     "encryption",
     "domain",
+    "postgres",
 ]
 version = "=0.2.5"
 

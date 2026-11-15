@@ -9,6 +9,7 @@
     "type": "object",
     "properties": {
       "resourceId": {
+        "description": "The document to process. Also the job id, so a document is queued at most once.",
         "type": "string",
         "format": "uuid"
       },
@@ -18,15 +19,28 @@
         "minimum": 1,
         "maximum": 9007199254740991
       },
-      "message": {
-        "type": "string"
+      "applicationId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "requestId": {
+        "description": "Id of the HTTP request that queued the job; bound to the worker's log lines.",
+        "type": "string",
+        "maxLength": 64
+      },
+      "traceparent": {
+        "description": "W3C trace context of that request (\"\" when it had none), so the job's\nspan joins the request's trace.",
+        "type": "string",
+        "maxLength": 64
       }
     },
     "additionalProperties": false,
     "required": [
       "resourceId",
       "revision",
-      "message"
+      "applicationId",
+      "requestId",
+      "traceparent"
     ],
     "x-forklaunch-model": {
       "version": 1,
@@ -98,6 +112,7 @@
         "type": "object",
         "properties": {
           "resourceId": {
+            "description": "The document to process. Also the job id, so a document is queued at most once.",
             "type": "string",
             "format": "uuid"
           },
@@ -107,15 +122,28 @@
             "minimum": 1,
             "maximum": 9007199254740991
           },
-          "message": {
-            "type": "string"
+          "applicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "description": "Id of the HTTP request that queued the job; bound to the worker's log lines.",
+            "type": "string",
+            "maxLength": 64
+          },
+          "traceparent": {
+            "description": "W3C trace context of that request (\"\" when it had none), so the job's\nspan joins the request's trace.",
+            "type": "string",
+            "maxLength": 64
           }
         },
         "additionalProperties": false,
         "required": [
           "resourceId",
           "revision",
-          "message"
+          "applicationId",
+          "requestId",
+          "traceparent"
         ],
         "x-forklaunch-model": {
           "version": 1,

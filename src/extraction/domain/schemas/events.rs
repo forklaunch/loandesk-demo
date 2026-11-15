@@ -136,10 +136,10 @@ mod tests {
         let producer = boundary("jobs", Uuid::new_v4());
         let operation = Uuid::new_v4().to_string();
         for revision in [0, -1, 9_007_199_254_740_992, i64::MAX] {
-            let input = serde_json::json!({"resourceId": Uuid::new_v4(), "revision": revision, "message": "private"}).to_string();
+            let input = serde_json::json!({"resourceId": Uuid::new_v4(), "revision": revision, "applicationId": Uuid::new_v4(), "requestId": "private", "traceparent": ""}).to_string();
             assert!(producer.seal(&operation, &input).is_err());
         }
-        let input = serde_json::json!({"resourceId": Uuid::new_v4(), "revision": 9_007_199_254_740_991i64, "message": "private"}).to_string();
+        let input = serde_json::json!({"resourceId": Uuid::new_v4(), "revision": 9_007_199_254_740_991i64, "applicationId": Uuid::new_v4(), "requestId": "private", "traceparent": ""}).to_string();
         let sealed = producer.seal(&operation, &input).unwrap();
         let job = Job::new(&operation, "jobs", &sealed);
         assert_eq!(producer.open(&job).unwrap().input.revision, 9_007_199_254_740_991);
@@ -150,11 +150,11 @@ mod tests {
         let tenant = Uuid::new_v4();
         let producer = boundary("jobs", tenant);
         let operation = Uuid::new_v4().to_string();
-        let input = serde_json::json!({"resourceId":Uuid::new_v4(),"revision":1,"message":"private marker"}).to_string();
+        let input = serde_json::json!({"resourceId":Uuid::new_v4(),"revision":1,"applicationId":Uuid::new_v4(),"requestId":"private marker","traceparent":""}).to_string();
         let sealed = producer.seal(&operation, &input).unwrap();
         assert!(!sealed.contains("private marker"));
         let job = Job::new(&operation, "jobs", &sealed);
-        assert_eq!(producer.open(&job).unwrap().input.message, "private marker");
+        assert_eq!(producer.open(&job).unwrap().input.request_id, "private marker");
         assert!(boundary("jobs", Uuid::new_v4()).open(&job).is_err());
         assert!(boundary("other", tenant).open(&Job::new(&operation, "other", &sealed)).is_err());
         assert!(producer.open(&Job::new(Uuid::new_v4().to_string(), "jobs", &sealed)).is_err());
