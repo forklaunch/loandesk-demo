@@ -73,6 +73,21 @@ pub async fn migrate() -> Result<()> {
             .run(&mut *connection)
             .await
             .map_err(storage("apply migrations"))?;
+        // An index build that was interrupted leaves an INVALID index behind,
+        // which PostgreSQL keeps but never uses (see migrations 0003 onward).
+        let invalid: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+             WHERE c.relnamespace = 'public'::regnamespace AND NOT i.indisvalid",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .map_err(storage("check index builds"))?;
+        if invalid > 0 {
+            return Err(AppError::Storage(
+                "an index build did not finish: drop the INVALID index and run --migrate again"
+                    .into(),
+            ));
+        }
         let before = super::legacy::pending(&mut connection).await?;
         if before.total() > 0 {
             let mut tx = connection.begin().await.map_err(storage("begin legacy migration"))?;

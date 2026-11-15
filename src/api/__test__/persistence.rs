@@ -9,10 +9,56 @@ use api::persistence::{
 use forklaunch_core::persistence::compliance::{ComplianceLevel, ComplianceMetadata};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MIGRATIONS: [&str; 2] = [
-    include_str!("../migrations/0001_init.sql"),
-    include_str!("../migrations/0002_forklaunch.sql"),
-];
+/// Every migration, in order, as (file name, SQL). Read from the directory so
+/// a new file is checked the moment it is added.
+fn migrations() -> Vec<(String, String)> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/migrations");
+    let mut files: Vec<(String, String)> = std::fs::read_dir(dir)
+        .expect("migrations directory")
+        .map(|entry| entry.expect("directory entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "sql"))
+        .map(|path| {
+            let name = path.file_name().expect("file name").to_string_lossy().into_owned();
+            (name, std::fs::read_to_string(&path).expect("readable migration"))
+        })
+        .collect();
+    files.sort();
+    assert!(files.len() >= 14, "expected the 14 known migrations, found {}", files.len());
+    files
+}
+
+/// SQL with `--` comments removed.
+fn statements(sql: &str) -> Vec<String> {
+    let code: String = sql
+        .lines()
+        .map(|line| line.split("--").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    code.split(';')
+        .map(|statement| statement.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|statement| !statement.is_empty())
+        .collect()
+}
+
+/// (index name, table, definition after the table name) of every index.
+fn indexes() -> Vec<(String, String, String)> {
+    let mut found = Vec::new();
+    for (_, sql) in migrations() {
+        for statement in statements(&sql) {
+            let words: Vec<&str> = statement.split(' ').collect();
+            if words[0] != "CREATE" || !words.contains(&"INDEX") {
+                continue;
+            }
+            let on = words.iter().position(|word| *word == "ON").expect("index has a table");
+            found.push((
+                words[on - 1].to_owned(),
+                words[on + 1].to_owned(),
+                words[on + 2..].join(" "),
+            ));
+        }
+    }
+    found
+}
 
 /// Columns still present for rollback but emptied by `api --migrate`; they are
 /// not part of the stored models (see persistence/legacy.rs).
@@ -33,7 +79,8 @@ fn schema() -> BTreeMap<String, BTreeSet<String>> {
     let mut tables: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut current: Option<String> = None;
     let mut creating = false;
-    for line in MIGRATIONS.iter().flat_map(|sql| sql.lines()) {
+    let all: Vec<String> = migrations().into_iter().map(|(_, sql)| sql).collect();
+    for line in all.iter().flat_map(|sql| sql.lines()) {
         let line = line.trim();
         let words: Vec<&str> = line.split_whitespace().collect();
         if line.starts_with("CREATE TABLE") {
@@ -143,5 +190,85 @@ fn no_stored_model_keeps_a_readable_ssn() {
                 entity.storage
             );
         }
+    }
+}
+
+#[test]
+fn indexes_on_existing_tables_are_built_without_blocking_writes() {
+    let mut checked = 0;
+    for (file, sql) in migrations() {
+        let statements = statements(&sql);
+        let created_here: Vec<&str> = statements
+            .iter()
+            .filter(|statement| statement.starts_with("CREATE TABLE "))
+            .map(|statement| statement.split(' ').nth(2).expect("table name"))
+            .collect();
+        for statement in &statements {
+            let words: Vec<&str> = statement.split(' ').collect();
+            if words[0] != "CREATE" || !words.contains(&"INDEX") {
+                continue;
+            }
+            let on = words.iter().position(|word| *word == "ON").expect("index has a table");
+            if created_here.contains(&words[on + 1]) {
+                continue; // A table created in the same migration is empty.
+            }
+            checked += 1;
+            assert!(
+                words.contains(&"CONCURRENTLY"),
+                "{file}: `{statement}` locks writes on {}; use CREATE INDEX CONCURRENTLY",
+                words[on + 1]
+            );
+            // CONCURRENTLY cannot run in a transaction, and sqlx sends a
+            // migration as one query: opt out, and keep the statement alone.
+            assert!(
+                sql.starts_with("-- no-transaction"),
+                "{file} must start with -- no-transaction"
+            );
+            assert_eq!(statements.len(), 1, "{file} must hold exactly one statement");
+        }
+    }
+    assert_eq!(checked, 12, "expected the 12 indexes added to existing tables");
+}
+
+#[test]
+fn every_filter_and_sort_the_services_run_has_an_index() {
+    // (table, leading columns of an index, the query it serves). Row-level
+    // security adds `tenant_id = ...` to every statement, hence the prefix.
+    let needed = [
+        ("applications", "(tenant_id, created_at DESC, id DESC)", "credit officers' list page"),
+        (
+            "applications",
+            "(tenant_id, created_by, created_at DESC, id DESC)",
+            "relationship managers' list page",
+        ),
+        ("applications", "(tenant_id, created_by, idempotency_key)", "idempotent create"),
+        ("applications", "USING gin (search_tokens)", "search on encrypted text"),
+        ("applications", "(created_by)", "foreign key, visibility filter"),
+        ("applications", "(decided_by)", "foreign key"),
+        ("owners", "(application_id)", "owners of an application"),
+        ("documents", "(application_id)", "documents of an application"),
+        ("documents", "(uploaded_by)", "foreign key"),
+        ("sessions", "(user_id)", "ending a user's sessions"),
+        ("sessions", "(expires_at)", "removing expired sessions"),
+        ("users", "(tenant_id, full_name, id)", "user list page"),
+        ("audit_log", "(user_id)", "audit trail by actor"),
+        ("audit_log", "(entity_id)", "audit trail by record"),
+        ("audit_log", "(tenant_id, at)", "audit trail by time"),
+    ];
+    let indexes = indexes();
+    for (table, columns, purpose) in needed {
+        assert!(
+            indexes
+                .iter()
+                .any(|(_, on, definition)| on == table && definition.starts_with(columns)),
+            "no index on {table} {columns} for: {purpose}"
+        );
+    }
+    // Lookups by key use the primary keys and unique constraints of 0001:
+    // sessions.token_hash, users.email, applications.reference, documents.storage_key.
+    let init = &migrations()[0].1;
+    for unique in ["token_hash TEXT PRIMARY KEY", "email TEXT NOT NULL UNIQUE"] {
+        let flat = init.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains(unique), "0001 no longer declares `{unique}`");
     }
 }

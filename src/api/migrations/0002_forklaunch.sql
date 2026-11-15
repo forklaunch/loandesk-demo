@@ -95,23 +95,10 @@ CREATE TRIGGER audit_log_no_truncate
     BEFORE TRUNCATE ON audit_log
     FOR EACH STATEMENT EXECUTE FUNCTION audit_log_is_append_only();
 
--- 4. Indexes for foreign keys, filters and keyset pagination ---------------
-
-CREATE UNIQUE INDEX applications_idempotency_idx
-    ON applications (tenant_id, created_by, idempotency_key)
-    WHERE idempotency_key IS NOT NULL;
--- List pages are ordered by (created_at DESC, id DESC) with a keyset cursor.
-CREATE INDEX applications_page_idx         ON applications (tenant_id, created_at DESC, id DESC);
-CREATE INDEX applications_creator_page_idx ON applications (tenant_id, created_by, created_at DESC, id DESC);
-CREATE INDEX applications_decided_by_idx   ON applications (decided_by);
-CREATE INDEX applications_search_idx       ON applications USING gin (search_tokens);
-CREATE INDEX documents_uploaded_by_idx     ON documents (uploaded_by);
-CREATE INDEX sessions_user_idx             ON sessions (user_id);
-CREATE INDEX sessions_expires_idx          ON sessions (expires_at);
-CREATE INDEX users_page_idx                ON users (tenant_id, full_name, id);
-CREATE INDEX audit_log_user_idx            ON audit_log (user_id);
-CREATE INDEX audit_log_entity_idx          ON audit_log (entity_id);
-CREATE INDEX audit_log_at_idx              ON audit_log (tenant_id, at);
+-- 4. Indexes ---------------------------------------------------------------
+-- The indexes for foreign keys, filters and keyset pagination are built by the
+-- migrations that follow (0003 to 0014), one per file, with CREATE INDEX
+-- CONCURRENTLY, so that building them does not block writes to these tables.
 
 -- 5. Two-factor sign-in ------------------------------------------------------
 
