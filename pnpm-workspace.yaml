@@ -45,6 +45,13 @@ overrides:
   '@forklaunch/testing': 1.3.0
   '@forklaunch/universal-sdk': 1.4.1
   '@forklaunch/validator': 1.3.0
+  # Known-vulnerability fixes for transitive dependencies of the generated
+  # ForkLaunch TypeScript workspace libraries (src/core, src/client-sdk,
+  # src/monitoring). GHSA-8988-4f7v-96qf: fixed in @opentelemetry/core 2.8.0;
+  # the instrumentation declares ^1.30.1 but never imports it.
+  # GHSA-q7qp-rjg7-q26m: fixed in multer 2.5.0 (@forklaunch/express pins 2.4.0).
+  '@forklaunch/opentelemetry-instrumentation-hyper-express>@opentelemetry/core': ^2.8.0
+  multer: ^2.5.0
 injectWorkspacePackages: true
 syncInjectedDepsAfterScripts:
 - build
