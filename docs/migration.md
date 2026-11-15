@@ -11,7 +11,7 @@
 | `users.rs` | `api/controllers/users.rs`, `domain/services/users.rs` |
 | `crypto.rs` | `domain/crypto.rs` (password hashing, session tokens, legacy SSN cipher) + ForkLaunch `ProtectedField` |
 | `seed.rs` | `src/api/seed.rs` |
-| `migrations/0001_init.sql` | unchanged, plus `0002_forklaunch.sql` |
+| `migrations/0001_init.sql` | unchanged, plus `0002_forklaunch.sql` (tenant scope, ciphertext columns, audit trigger) and `0003` to `0014` (one index each, built `CONCURRENTLY`) |
 | `backend/worker` (polls `documents`) | `src/extraction` (ForkLaunch leased queue `fl_worker.jobs`) |
 | `backend/shared` | `src/shared` |
 | `docs` volume | S3-compatible object store |
@@ -25,7 +25,10 @@ Users, password hashes, sessions, roles, ids and references are untouched: exist
 3. Run `api --migrate` with `TENANT_ID`, the new `ENCRYPTION_KEY_*`, and
    `LEGACY_DATA_ENCRYPTION_KEY` = the old `DATA_ENCRYPTION_KEY`. It applies `0002`, adopts every row
    into the tenant, re-encrypts SSNs, names, dates of birth, purpose, notes and file names, empties
-   the old columns, and fails if any plaintext is left.
+   the old columns, and fails if any plaintext is left. Rows are read and converted 200 at a time,
+   inside one transaction: a failure leaves the database as it was. Indexes are built after that
+   schema change, one per migration, without blocking writes; `--migrate` fails if a build was
+   interrupted (see `docs/runbooks/failures.md`).
 4. Run `extraction --migrate`.
 5. Copy each file `<docs volume>/<document id>.pdf` to
    `tenants/<tenant>/applications/<application id>/<document id>.pdf` and update

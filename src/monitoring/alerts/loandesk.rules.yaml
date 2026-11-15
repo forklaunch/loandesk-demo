@@ -9,6 +9,54 @@
 # Routing to a person (Alertmanager receiver / on-call rotation) is configured
 # where these are loaded, not here.
 groups:
+  # Error-budget burn for the availability objective in docs/slo.md:
+  # 99.5% of API requests are not 5xx over 30 days (budget: 0.5%).
+  # Multi-window, multi-burn-rate: both windows must be over the rate, so an
+  # alert fires quickly on a real burn and clears quickly when it stops.
+  - name: loandesk-slo-burn
+    rules:
+      - record: loandesk:api_error_ratio:rate5m
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[5m]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[5m]))
+      - record: loandesk:api_error_ratio:rate30m
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[30m]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[30m]))
+      - record: loandesk:api_error_ratio:rate1h
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[1h]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[1h]))
+      - record: loandesk:api_error_ratio:rate6h
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[6h]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[6h]))
+      - record: loandesk:api_error_ratio:rate3d
+        expr: |
+          sum(rate(http_server_request_count_total{service_name="api",http_response_status_code=~"5.."}[3d]))
+            / sum(rate(http_server_request_count_total{service_name="api"}[3d]))
+      - alert: LoanDeskErrorBudgetFastBurn
+        expr: loandesk:api_error_ratio:rate1h > (14.4 * 0.005) and loandesk:api_error_ratio:rate5m > (14.4 * 0.005)
+        for: 2m
+        labels: { severity: page, slo: api-availability }
+        annotations:
+          summary: The API is spending its monthly error budget 14 times too fast (2% of it per hour)
+          runbook: docs/runbooks/failures.md#api-errors
+      - alert: LoanDeskErrorBudgetSlowBurn
+        expr: loandesk:api_error_ratio:rate6h > (6 * 0.005) and loandesk:api_error_ratio:rate30m > (6 * 0.005)
+        for: 15m
+        labels: { severity: page, slo: api-availability }
+        annotations:
+          summary: The API is spending its monthly error budget 6 times too fast (5% of it in six hours)
+          runbook: docs/runbooks/failures.md#api-errors
+      - alert: LoanDeskErrorBudgetTrend
+        expr: loandesk:api_error_ratio:rate3d > 0.005 and loandesk:api_error_ratio:rate6h > 0.005
+        for: 1h
+        labels: { severity: ticket, slo: api-availability }
+        annotations:
+          summary: At this error rate the API will miss its 99.5% availability objective this month
+          runbook: docs/runbooks/failures.md#api-errors
+
   - name: loandesk-availability
     rules:
       - alert: LoanDeskHighErrorRate
@@ -79,3 +127,12 @@ groups:
         labels: { severity: page }
         annotations:
           summary: A storage key outside the tenant prefix was requested
+
+  - name: loandesk-browser-errors   # Loki ruler (LogQL)
+    rules:
+      - alert: LoanDeskBrowserErrors
+        expr: sum(count_over_time({service_name="api"} | json | event="browser_error" [10m])) > 10
+        labels: { severity: ticket }
+        annotations:
+          summary: Users' browsers are reporting errors; a screen is probably broken
+          runbook: docs/runbooks/failures.md#browser-errors

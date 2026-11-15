@@ -82,9 +82,12 @@ cargo test --workspace                 # unit, contract and classification tests
 cd frontend && npm ci && npm run build # type-check and build the front end
 
 docker compose up --build -d --wait    # then, against the running stack:
-python3 scripts/e2e.py                 # 72 end-to-end checks: flows and who is refused
+python3 scripts/e2e.py                 # end-to-end checks: flows and who is refused
 sh scripts/verify-storage.sh           # ciphertext at rest, append-only audit trail, row-level security
+sh scripts/verify-operations.sh        # after e2e.py: nothing personal in any log, readiness, graceful shutdown
 ```
+
+`verify-operations.sh` stops and restarts the object store, the API and the worker while it checks them.
 
 ## How it fits together
 
@@ -97,11 +100,15 @@ each control is enforced. In short:
   PDF from object storage, finds the figures, saves them. Failures that can
   pass are retried up to 3 times, then kept as dead letters; unreadable PDFs
   are marked "could not be read".
-- `src/shared` – risk formulas and the figure parser.
-- `frontend` – React + TypeScript (Vite), served by nginx.
+- `src/shared` – risk formulas, the figure parser, and what an error may say in a log.
+- `frontend` – React + TypeScript (Vite), served by nginx. Errors caught in the
+  browser are reported to `POST /api/client-errors` (class and stack frames
+  only, never the message) and logged as `browser_error`.
 - `src/core`, `src/monitoring`, `src/client-sdk` – generated ForkLaunch
-  workspace libraries; `src/monitoring` holds dashboards, collector config and
-  alert rules.
+  TypeScript workspace libraries. The app does not import them: nothing in
+  `src/api`, `src/extraction` or `frontend` depends on them, and they are not
+  in any image. `src/monitoring` also holds the dashboards, collector config
+  and alert rules, which are used.
 
 More: `docs/deployment.md`, `docs/migration.md`, `docs/data-classification.md`,
 `docs/runbooks/`, `docs/adr/`, `CHANGELOG.md`.
@@ -124,10 +131,32 @@ documents that word things differently. When several documents are uploaded, a
 figure found in a later one replaces the earlier value.
 
 **Sensitive data.** Owner names, SSNs, dates of birth, the purpose text,
-decision notes and file names are encrypted field by field; screens show an
-SSN's last four digits; showing a full SSN, opening an application, downloading
-a document and every change are written to the append-only `audit_log` table
-(there is no screen for it yet). Passwords are Argon2id hashes. Sessions are
+decision notes and file names are encrypted field by field. Opening an
+application, downloading a document and every change are written to the
+append-only `audit_log` table (there is no screen for it yet).
+
+**Full SSNs: one audited way out.** Lists, the application view and the export
+carry only an SSN's last four digits. A full SSN leaves the server through
+exactly one route, `POST /api/applications/{id}/owners/{owner_id}/reveal-ssn`,
+which is what the **Show** link next to an owner calls. It is limited to the
+people who may see that application (the relationship manager who created it,
+and credit officers; never admins), returns one owner's number per call, and
+commits an `ssn_revealed` audit entry before the number is sent: if the entry
+cannot be written, nothing is returned. The number is shown on screen until
+**Hide** is clicked or the page is left; it is not stored in the browser.
+Nothing else returns a full SSN, and three checks hold that line:
+`a_full_ssn_leaves_the_server_only_through_the_audited_reveal_endpoint`
+(`src/api/__test__/http.rs`, over every route's response schema),
+`no_stored_model_keeps_a_readable_ssn` (`src/api/__test__/persistence.rs`), and
+`scripts/e2e.py` (the creator succeeds, another manager gets 404, an admin 403).
+
+**Logs carry ids, not data.** The services log ids, fixed words, counts and
+booleans. Errors from the database driver are logged as an SQLSTATE code and
+constraint name only, because the driver's own text can quote a row. A test
+reads every log statement in the source (`src/api/__test__/logging.rs`), and
+`scripts/verify-operations.sh` searches the logs of the running stack for the
+demo owners' names, SSNs, dates of birth, free text, file names and passwords.
+The web server's access log records paths without query strings. Passwords are Argon2id hashes. Sessions are
 HttpOnly, SameSite=Strict cookies that last 8 hours. Five failed sign-ins lock
 an account for 15 minutes. Uploads must be PDFs of at most 20 MB.
 Because names and purpose are encrypted, search matches them by whole word or

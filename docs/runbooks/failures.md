@@ -7,6 +7,23 @@ Logs are JSON; filter on `event` and follow one action with `request_id` (the wo
 `event=dependency_error` names the `operation` that failed. `GET /health` shows which dependency
 is down. Database down: the API reports not-ready and is taken out of rotation; it recovers by itself.
 
+`error` on that line is deliberately short: for the database it is the SQLSTATE code and the
+constraint or table name (the server's own message can quote a row, so it is not logged). Look the
+code up, or reproduce the statement, to see the detail.
+
+## Browser errors
+`event=browser_error` (alert `LoanDeskBrowserErrors`): a screen failed in someone's browser. The
+line has the error `class`, the `screen` (route without ids), the `release` and the stack frames,
+and the `user_id` to ask. It never has the error message. At most 60 are logged per minute per
+instance.
+
+## An index build did not finish
+`api --migrate` ends with "an index build did not finish". Migrations 0003 onward build indexes
+with `CREATE INDEX CONCURRENTLY`; an interrupted build leaves an index marked INVALID. Find it
+(`SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE NOT i.indisvalid`),
+`DROP INDEX CONCURRENTLY <name>`, delete that migration's row from `_sqlx_migrations` if it was
+recorded, and run `api --migrate` again.
+
 ## API down
 Check the last `event=startup` / `shutdown_complete` / `panic` lines. A startup refusal in
 production names the setting to fix.

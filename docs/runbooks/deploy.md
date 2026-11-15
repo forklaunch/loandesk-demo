@@ -8,4 +8,4 @@ Follow "Order of a release" in `docs/deployment.md`. Checks after each step:
 - Worker logs `event=startup`; `GET /ready` returns 200.
 - `python3 scripts/e2e.py` passes against staging (it creates data: never run it against production).
 
-Local: `docker compose up --build -d --wait && python3 scripts/e2e.py && sh scripts/verify-storage.sh`.
+Local: `docker compose up --build -d --wait && python3 scripts/e2e.py && sh scripts/verify-storage.sh && sh scripts/verify-operations.sh`.

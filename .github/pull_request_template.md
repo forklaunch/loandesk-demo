@@ -5,7 +5,7 @@
 ## How it was tested
 
 - [ ] `cargo test --workspace`
-- [ ] `python3 scripts/e2e.py` against `docker compose up --build`
+- [ ] `python3 scripts/e2e.py` against `docker compose up --build`, then `sh scripts/verify-storage.sh` and `sh scripts/verify-operations.sh`
 - [ ] Front end: `npm run build` in `frontend/`
 - Other checks (describe):
 

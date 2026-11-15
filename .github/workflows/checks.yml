@@ -27,8 +27,25 @@ jobs:
           node-version-file: frontend/.nvmrc
       - run: npm ci
       - run: npm run build
-      - name: Known vulnerabilities in shipped dependencies
-        run: npm audit --omit=dev --audit-level=high
+      # Build tools included: a vulnerable bundler or dev server is still a risk
+      # to whoever builds the app.
+      - name: Known vulnerabilities in front-end dependencies
+        run: npm audit --audit-level=moderate
+
+  workspace-dependencies:
+    name: Generated TypeScript workspace dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+      # Both lockfiles of the generated ForkLaunch libraries (unused by the app,
+      # but installed by anyone who works on them).
+      - run: pnpm audit --audit-level=moderate
+      - run: pnpm audit --audit-level=moderate
+        working-directory: src
 
   dependencies:
     name: Rust dependency audit
@@ -74,6 +91,8 @@ jobs:
       - run: python3 scripts/e2e.py
       - name: Classified columns hold ciphertext, audit trail is append-only
         run: sh scripts/verify-storage.sh
+      - name: Nothing personal in any log, readiness follows dependencies, shutdown is graceful
+        run: sh scripts/verify-operations.sh
       - if: failure()
         run: docker compose logs --no-color | tail -n 300
       - if: always()

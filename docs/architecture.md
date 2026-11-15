@@ -31,6 +31,8 @@ Request upload (API records the document as `uploading`, returns a 5-minute POST
 one key, `application/pdf` and 20 MB) -> browser posts the file to storage -> complete (API checks
 size and the `%PDF-` signature, marks it `pending` and enqueues the job in one transaction) ->
 worker -> `done` or `failed`. Downloads use a 60-second signed link, issued after the audit entry.
+The API never holds a file: on completion it reads only the first chunk, to check the signature.
+The worker reads a file into memory to parse it, and stops at the 20 MB upload limit.
 
 ## Data
 
@@ -50,4 +52,11 @@ See `docs/data-classification.md`. Classification is declared on the stored mode
 | Upload size and type | `infrastructure/documents.rs`, `domain/services/documents.rs` |
 | Idempotent job handling, retry classification | `src/extraction/domain/services/handler.rs` |
 | Queue depth and dead-letter metrics | `src/extraction/monitor.rs` |
-| Tests for the above | `src/api/__test__/`, `scripts/e2e.py`, `scripts/verify-storage.sh` |
+| What a log line may contain | `src/shared/src/logsafe.rs`, checked by `src/api/__test__/logging.rs` |
+| Full SSN released by one audited route only | `ApplicationsService::reveal_ssn`; see `docs/data-classification.md` |
+| Readiness (database, object store, not draining), graceful shutdown | `domain/services/health.rs`, `bootstrapper.rs`; worker: `src/extraction/worker.rs` |
+| Trace context from request to job | `api/transport.rs` (`traceparent`), `infrastructure/extraction_queue.rs`, `src/extraction/domain/services/handler.rs` (`job_context`) |
+| Retry limit and jittered delay | `infrastructure/extraction_queue.rs` (`retry_delays`), `WORKER_MAX_ATTEMPTS`, `WORKER_BACKOFF_SECONDS` |
+| Indexes built without blocking writes | `src/api/migrations/0003` to `0014`, checked by `src/api/__test__/persistence.rs` |
+| Browser error reports | `frontend/src/errorReporting.ts`, `domain/services/browser_errors.rs` |
+| Tests for the above | `src/api/__test__/`, `scripts/e2e.py`, `scripts/verify-storage.sh`, `scripts/verify-operations.sh` |

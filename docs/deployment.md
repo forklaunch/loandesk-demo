@@ -30,7 +30,8 @@ The API refuses to start in production if any local-demo allowance is set
 3. Back up production (`docs/runbooks/backup-restore.md`).
 4. Production: run both migrations, then roll the API and worker. Health checks: API `GET /health`
    (readiness) and `GET /api/healthz` (liveness); worker `GET /ready` on `WORKER_HTTP_ADDR`.
-   Give both 40 seconds to drain on SIGTERM.
+   Give both 40 seconds to drain on SIGTERM: from the signal on, the API's readiness probe fails
+   (so the load balancer stops sending requests) while in-flight requests finish.
 5. Shift traffic gradually if the platform supports it; watch error rate and the `startup` log line for the expected version.
 
 ## Health checks, scaling

@@ -24,6 +24,9 @@ import uuid
 BASE = os.environ.get("LOANDESK_URL", "http://127.0.0.1:41080").rstrip("/")
 PASSWORD = os.environ.get("DEMO_PASSWORD", "loandesk-demo-2026")
 SAMPLE = os.path.join(os.path.dirname(__file__), "..", "sample-docs", "cedar-ridge-financial-statement.pdf")
+# A fixed W3C trace context sent with document uploads, to follow a request into its job.
+TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
+TRACEPARENT = f"00-{TRACE_ID}-00f067aa0ba902b7-01"
 passed = 0
 
 
@@ -111,7 +114,9 @@ def upload(client, application, content, filename="statement.pdf", declared=None
     except urllib.error.HTTPError as error:
         return error.code, {"error": "storage refused the upload", "stage": "storage"}
     assert stored in (200, 201, 204), stored
-    status, accepted, _ = client.call("POST", f"/api/documents/{grant['id']}/complete")
+    # The request that queues the job carries a trace context; the worker's log
+    # lines for that job must carry the same trace id (scripts/verify-operations.sh).
+    status, accepted, _ = client.call("POST", f"/api/documents/{grant['id']}/complete", headers={"traceparent": TRACEPARENT})
     return status, accepted if status != 200 else {**accepted, "id": grant["id"]}
 
 
@@ -323,6 +328,23 @@ def main():
     status, body, _ = second.login(email, new_password)
     check(status == 401 and body["error"] == wrong, "password alone no longer signs in, with the same generic answer (401)")
     check(second.login(email, new_password, totp(enrolment["secret"]))[0] == 200, "password plus authenticator code signs in")
+
+    # --- browser error reports ------------------------------------------------
+    report = {
+        "kind": "unhandledrejection",
+        "class": "TypeError",
+        "screen": f"#/applications/{created['id']}",
+        # A browser stack starts with the message, which can quote what a user
+        # typed. Only the frames may be kept (checked in verify-operations.sh).
+        "stack": "TypeError: SSN for Quentin Yarborough must be 9 digits\n    at submit (http://127.0.0.1:41080/assets/index-e2e.js:40:1234)",
+        "release": "e2e",
+    }
+    status, body, _ = maya.call("POST", "/api/client-errors", report)
+    check(status == 200 and body == {"ok": True}, "a signed-in browser can report an error it caught")
+    status, _, _ = Client().call("POST", "/api/client-errors", report)
+    check(status == 401, "an anonymous caller cannot write error reports (401)")
+    status, _, _ = maya.call("POST", "/api/client-errors", {**report, "message": "typed text"})
+    check(status == 400, "an error report with an unknown field (such as a message) is refused (400)")
 
     # --- sign-out ------------------------------------------------------------
     status, _, _ = tester.call("POST", "/api/auth/logout")
