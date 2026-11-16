@@ -4,7 +4,10 @@
 //! short-lived grant that fixes the key, the content type and the maximum size,
 //! and reads them back through a short-lived signed link. Keys always start
 //! with the tenant's prefix, and every operation here checks that.
-use crate::error::{AppError, Result, storage};
+use crate::{
+    dependency_metrics::{OBJECT_STORE, measured},
+    error::{AppError, Result, storage},
+};
 use forklaunch_core::config;
 use forklaunch_infrastructure_s3::{
     AsyncObjectStore, ObjectMetadata,
@@ -89,42 +92,37 @@ impl DocumentStore {
 
     pub async fn upload_target(&self, key: &str) -> Result<UploadTarget> {
         self.check_tenant(key)?;
-        let grant = self
-            .store
-            .presign_upload(
-                key,
-                &PresignUploadOptions {
-                    content_type: "application/pdf".to_owned(),
-                    max_bytes: MAX_UPLOAD_BYTES,
-                    expires_in: Some(UPLOAD_GRANT),
-                },
-            )
-            .await
-            .map_err(storage("sign upload grant"))?;
+        let options = PresignUploadOptions {
+            content_type: "application/pdf".to_owned(),
+            max_bytes: MAX_UPLOAD_BYTES,
+            expires_in: Some(UPLOAD_GRANT),
+        };
+        let grant =
+            measured(OBJECT_STORE, "presign_upload", self.store.presign_upload(key, &options))
+                .await
+                .map_err(storage("sign upload grant"))?;
         Ok(UploadTarget { url: self.browser_url(&grant.url), fields: grant.fields })
     }
 
     pub async fn download_url(&self, key: &str, filename: &str) -> Result<String> {
         self.check_tenant(key)?;
-        let url = self
-            .store
-            .presign_download(
-                key,
-                &PresignDownloadOptions {
-                    expires_in: Some(DOWNLOAD_GRANT),
-                    filename: Some(filename.to_owned()),
-                },
-            )
-            .await
-            .map_err(storage("sign download link"))?;
+        let options = PresignDownloadOptions {
+            expires_in: Some(DOWNLOAD_GRANT),
+            filename: Some(filename.to_owned()),
+        };
+        let url =
+            measured(OBJECT_STORE, "presign_download", self.store.presign_download(key, &options))
+                .await
+                .map_err(storage("sign download link"))?;
         Ok(self.browser_url(&url))
     }
 
     /// Size and file signature of a stored object, reading only its first chunk.
     pub async fn head(&self, key: &str) -> Result<Option<StoredHead>> {
         self.check_tenant(key)?;
-        let Some(mut download) =
-            self.store.download(key).await.map_err(storage("read stored object"))?
+        let Some(mut download) = measured(OBJECT_STORE, "head", self.store.download(key))
+            .await
+            .map_err(storage("read stored object"))?
         else {
             return Ok(None);
         };
@@ -142,23 +140,30 @@ impl DocumentStore {
         let metadata = ObjectMetadata::new()
             .with_content_type("application/pdf")
             .with_tag("classification", DOCUMENT_CLASSIFICATION);
-        self.store.put(key, bytes, metadata).await.map_err(storage("store object"))?;
+        measured(OBJECT_STORE, "put", self.store.put(key, bytes, metadata))
+            .await
+            .map_err(storage("store object"))?;
         Ok(())
     }
 
     pub async fn delete(&self, key: &str) -> Result<()> {
         self.check_tenant(key)?;
-        self.store.delete(key).await.map_err(storage("delete stored object"))?;
+        measured(OBJECT_STORE, "delete", self.store.delete(key))
+            .await
+            .map_err(storage("delete stored object"))?;
         Ok(())
     }
 
     /// Readiness probe: one bounded request for a key that does not exist.
     pub async fn ping(&self) -> Result<()> {
         let probe = format!("{}.readiness-probe", tenant_prefix(self.tenant));
-        tokio::time::timeout(Duration::from_secs(2), self.store.download(&probe))
-            .await
-            .map_err(|_| AppError::Storage("object store readiness timed out".into()))?
-            .map_err(storage("object store readiness"))?;
+        measured(OBJECT_STORE, "ping", async {
+            tokio::time::timeout(Duration::from_secs(2), self.store.download(&probe))
+                .await
+                .map_err(|_| AppError::Storage("object store readiness timed out".into()))?
+                .map_err(storage("object store readiness"))
+        })
+        .await?;
         Ok(())
     }
 }

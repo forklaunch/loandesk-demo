@@ -41,14 +41,26 @@ Documents that could not be parsed are marked "Could not be read" and are not re
 Worker stopped or too slow. Check `GET /ready` on the worker; add worker instances or raise `WORKER_CONCURRENCY`.
 
 ## Failed sign-ins
-`event=login_failed` / `login_rate_limited` with `user_id`. Five failures lock an account for 15 minutes.
-A burst across many accounts is password guessing: block the source at the edge.
+See `docs/runbooks/security-events.md` (failed sign-ins, lockouts, rate limits, invalid sessions).
 
 ## Revoke someone's access now
-Change their role (admin screen): their sessions end immediately. To end every session:
-`DELETE FROM sessions;` as the app role inside a tenant transaction.
+**Disable** the account on the Users page (or change its role): its sessions end in the same
+transaction and it cannot sign in. See `docs/runbooks/access-review.md`. To end every session of
+everyone: `DELETE FROM sessions;` as the app role inside a tenant transaction.
 
 ## Rotate the field-encryption key
-Add the new key as `ENCRYPTION_KEY_ID`/`ENCRYPTION_KEY_HEX`, move the old one into
-`ENCRYPTION_PREVIOUS_KEYS_JSON`, redeploy. New writes use the new key; old rows stay readable.
-Re-encrypting existing rows and rebuilding search tokens is not scripted yet.
+`docs/runbooks/key-rotation.md`: add the new key, run `api --rotate-keys`, retire the old key.
+
+## Scheduled job
+The worker runs the retention and access housekeeping pass every `LIFECYCLE_INTERVAL_SECONDS`
+(`src/extraction/lifecycle.rs`) and logs `lifecycle_pass` with what it did.
+
+- `lifecycle_step_failed` names the step (`step`) and the failing call. The pass continues with
+  the other steps and the next pass repeats the failed one. A purge that keeps failing on
+  `delete stored file` means the object store refuses deletes: check the worker's bucket policy.
+- No `lifecycle_pass` for hours: no worker is running, or `LIFECYCLE_INTERVAL_SECONDS=0`.
+- `lifecycle_skipped` on every pass of one instance is normal with several workers: one pass runs
+  at a time, under an advisory lock.
+- To run a pass now and read its report: `extraction --lifecycle-once`.
+- To stop deleting while a retention question is open: set the period to `0` (keeps that record
+  type) and restart the worker. Nothing already deleted can be brought back except from a backup.

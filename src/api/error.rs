@@ -26,19 +26,28 @@ pub fn bad(message: impl Into<String>) -> AppError {
     AppError::BadRequest(message.into())
 }
 
-/// Logs a failed dependency call with its operation and a description of the
+/// Logs a failed dependency call with its context, then hides the detail from
+/// the caller. The log line carries what was being done (`operation`), where
+/// in the code the failing call is (`location`: file and line of the call
+/// site, the useful part of a stack for an error value, which has no
+/// backtrace of its own), the request it belongs to (`request_id`, and the
+/// user and route on the enclosing request span), and a description of the
 /// error that is safe to log (`shared::logsafe`: never `Debug`, never a
-/// database message or detail, which can quote row contents), then hides the
-/// detail from the caller.
+/// database message or detail, which can quote row contents). It is also
+/// counted in `loandesk.dependency.errors`.
+#[track_caller]
 pub fn storage<E: fmt::Display + 'static>(operation: &'static str) -> impl FnOnce(E) -> AppError {
+    let location = std::panic::Location::caller();
     move |error| {
         tracing::error!(
             event = "dependency_error",
             operation,
+            location = %location,
             request_id = %transport::request_id(),
             error = %shared::logsafe::describe(&error),
             "dependency call failed"
         );
+        crate::dependency_metrics::failed(operation);
         AppError::Storage(operation.to_owned())
     }
 }
@@ -130,7 +139,7 @@ mod tests {
     use shared::logsafe::testing::{ROW_VALUES, row_violation};
 
     #[test]
-    fn a_failed_database_call_is_logged_without_row_contents() {
+    fn a_failed_database_call_is_logged_with_its_context_and_without_row_contents() {
         // The driver error quotes an owner's name, SSN and date of birth.
         let logs = test_logs::capture(|| {
             assert_eq!(
@@ -139,6 +148,8 @@ mod tests {
             );
         });
         assert!(logs.contains("dependency_error"), "{logs}");
+        // Context: what was being done and where in the code the call is.
+        assert!(logs.contains("location=src/api/error.rs:"), "{logs}");
         assert!(logs.contains("create owner") && logs.contains("sqlstate=23514"), "{logs}");
         assert!(logs.contains("constraint=owners_ownership_percent_check"), "{logs}");
         for value in ROW_VALUES {

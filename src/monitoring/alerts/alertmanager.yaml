@@ -1,0 +1,49 @@
+# Alertmanager routing for the rules in loandesk.rules.yaml, as code.
+#
+# Every LoanDesk alert has a `severity` label, and this file decides who hears
+# about each:
+#
+#   severity: page    -> receiver `on-call`  (a person is paged, any hour)
+#   severity: ticket  -> receiver `team`     (the team's channel, next working day)
+#
+# Anything without a known severity also goes to `team`, so no alert is dropped.
+#
+# The two destinations are read from files mounted at deploy time, so no key or
+# webhook address is in this repository:
+#
+#   /etc/alertmanager/secrets/pagerduty_routing_key   the on-call service's integration key
+#   /etc/alertmanager/secrets/team_webhook_url        the team channel's incoming webhook
+#
+# NEEDS A PERSON: create those two destinations (which on-call rotation, which
+# channel) and mount the files. Until then Alertmanager loads this file and
+# fails to deliver, which it reports in its own `alertmanager_notifications_failed_total`.
+route:
+  receiver: team
+  group_by: [alertname]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity = "page"]
+      receiver: on-call
+      repeat_interval: 30m
+    - matchers: [severity = "ticket"]
+      receiver: team
+      repeat_interval: 24h
+
+receivers:
+  - name: on-call
+    pagerduty_configs:
+      - routing_key_file: /etc/alertmanager/secrets/pagerduty_routing_key
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          runbook: '{{ .CommonAnnotations.runbook }}'
+  - name: team
+    webhook_configs:
+      - url_file: /etc/alertmanager/secrets/team_webhook_url
+        send_resolved: true
+
+# A page for the API being down silences the tickets it would also cause.
+inhibit_rules:
+  - source_matchers: [alertname = "LoanDeskApiDown"]
+    target_matchers: [severity = "ticket"]

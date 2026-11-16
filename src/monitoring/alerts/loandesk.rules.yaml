@@ -6,8 +6,9 @@
 # Metric names are the OTLP names with dots replaced by underscores, as the
 # collector's Prometheus exporter writes them; confirm the exact suffixes
 # (`_total`, `_milliseconds_bucket`) against your collector before loading.
-# Routing to a person (Alertmanager receiver / on-call rotation) is configured
-# where these are loaded, not here.
+# Every alert carries `severity: page` or `severity: ticket`. Routing by that
+# label is in alertmanager.yaml beside this file; who is behind each receiver
+# (the on-call service, the team channel) is set there by the operating team.
 groups:
   # Error-budget burn for the availability objective in docs/slo.md:
   # 99.5% of API requests are not 5xx over 30 days (budget: 0.5%).
@@ -108,6 +109,7 @@ groups:
         labels: { severity: ticket }
         annotations:
           summary: More than 20% of extraction attempts are failing
+          runbook: docs/runbooks/failures.md#dead-letters
 
   - name: loandesk-security-events   # Loki ruler (LogQL)
     rules:
@@ -116,17 +118,139 @@ groups:
         labels: { severity: page }
         annotations:
           summary: More than 20 failed sign-ins in 5 minutes
-          runbook: docs/runbooks/failures.md#failed-sign-ins
+          runbook: docs/runbooks/security-events.md#failed-sign-ins
       - alert: LoanDeskPermissionDenialBurst
         expr: sum(count_over_time({service_name="api"} | json | event="permission_denied" [5m])) > 30
         labels: { severity: ticket }
         annotations:
           summary: Unusual number of refused actions; someone may be probing for access
+          runbook: docs/runbooks/security-events.md#permission-denials
       - alert: LoanDeskCrossTenantStorageKey
-        expr: sum(count_over_time({service_name="api"} | json | event="cross_tenant_storage_key" [5m])) > 0
+        expr: sum(count_over_time({service_name=~"api|extraction"} | json | event="cross_tenant_storage_key" [5m])) > 0
         labels: { severity: page }
         annotations:
           summary: A storage key outside the tenant prefix was requested
+          runbook: docs/runbooks/security-events.md#cross-tenant-storage-key
+      - alert: LoanDeskAccountLockouts
+        expr: sum(count_over_time({service_name="api"} | json | event="login_rate_limited" [10m])) > 5
+        labels: { severity: ticket }
+        annotations:
+          summary: Sign-ins are being refused for locked accounts (five wrong passwords each); possible password guessing
+          runbook: docs/runbooks/security-events.md#failed-sign-ins
+      - alert: LoanDeskRateLimited
+        expr: sum(count_over_time({service_name="api"} | json | event="rate_limited" [5m])) > 50
+        labels: { severity: ticket }
+        annotations:
+          summary: Requests are being refused by the rate limits; a client is hammering the API
+          runbook: docs/runbooks/security-events.md#rate-limits
+      - alert: LoanDeskInvalidSessions
+        expr: sum(count_over_time({service_name="api"} | json | event="invalid_session" [5m])) > 50
+        labels: { severity: ticket }
+        annotations:
+          summary: Many requests carry a session cookie that is unknown, expired or revoked; possible token guessing or replay
+          runbook: docs/runbooks/security-events.md#invalid-sessions
+      - alert: LoanDeskDisabledAccountSignIn
+        expr: sum(count_over_time({service_name="api"} | json | event="login_refused_disabled" [10m])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: Someone signed in with the correct password of a disabled account
+          runbook: docs/runbooks/security-events.md#disabled-account
+      - alert: LoanDeskPasswordChangeRefused
+        expr: sum(count_over_time({service_name="api"} | json | event="password_change_refused" [10m])) > 5
+        labels: { severity: ticket }
+        annotations:
+          summary: Repeated password changes with a wrong current password; a session may be in someone else's hands
+          runbook: docs/runbooks/security-events.md#password-change
+      - alert: LoanDeskSsnRevealBurst
+        expr: sum(count_over_time({service_name="api"} | json | event="ssn_revealed" [10m])) > 30
+        labels: { severity: page }
+        annotations:
+          summary: More than 30 full SSNs were revealed in 10 minutes; far above normal use
+          runbook: docs/runbooks/security-events.md#bulk-access
+      - alert: LoanDeskBulkExport
+        expr: sum(count_over_time({service_name="api"} | json | event=~"application_exported|document_downloaded" [10m])) > 50
+        labels: { severity: ticket }
+        annotations:
+          summary: Unusual number of application exports or document downloads
+          runbook: docs/runbooks/security-events.md#bulk-access
+      - alert: LoanDeskAccountChange
+        expr: sum(count_over_time({service_name="api"} | json | event=~"user_created|user_role_changed|user_disabled|user_enabled" [5m])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: A user account was created, enabled, disabled or given another role; confirm it was intended
+          runbook: docs/runbooks/security-events.md#account-changes
+      - alert: LoanDeskDisclosureNotReturned
+        expr: sum(count_over_time({service_name="api"} | json | event="disclosure_not_returned" [10m])) > 10
+        labels: { severity: ticket }
+        annotations:
+          summary: Requests are decrypting personal fields and then failing before they answer
+          runbook: docs/runbooks/failures.md#api-errors
+
+  - name: loandesk-governance   # Loki ruler (LogQL); events from the worker's scheduled job
+    rules:
+      - alert: LoanDeskAccessReviewOverdue
+        expr: sum(count_over_time({service_name="extraction"} | json | event="access_review_overdue" [2h])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: No access review has been recorded within the review interval
+          runbook: docs/runbooks/access-review.md
+      - alert: LoanDeskStaleAccountsDisabled
+        expr: sum(count_over_time({service_name="extraction"} | json | event=~"stale_accounts_disabled|stale_accounts|stale_admin_kept" [2h])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: Accounts unused for the stale period were disabled (or flagged); check they are no longer needed
+          runbook: docs/runbooks/access-review.md#stale-accounts
+      - alert: LoanDeskEncryptionKeyRotationDue
+        expr: sum(count_over_time({service_name="extraction"} | json | event="encryption_key_rotation_due" [2h])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: The active field-encryption key is older than its rotation period
+          runbook: docs/runbooks/key-rotation.md
+      - alert: LoanDeskScheduledJobFailing
+        expr: sum(count_over_time({service_name="extraction"} | json | event="lifecycle_step_failed" [2h])) > 0
+        labels: { severity: ticket }
+        annotations:
+          summary: A step of the retention and access housekeeping job failed
+          runbook: docs/runbooks/failures.md#scheduled-job
+      - alert: LoanDeskScheduledJobNotRunning
+        expr: absent_over_time({service_name="extraction"} | json | event="lifecycle_pass" [3h])
+        labels: { severity: ticket }
+        annotations:
+          summary: The retention and access housekeeping job has not completed a pass for 3 hours
+          runbook: docs/runbooks/failures.md#scheduled-job
+
+  - name: loandesk-errors   # Loki ruler (LogQL): error tracking over the structured logs
+    rules:
+      - alert: LoanDeskPanic
+        expr: sum(count_over_time({service_name=~"api|extraction"} | json | event="panic" [5m])) > 0
+        labels: { severity: page }
+        annotations:
+          summary: A service process panicked; the log line has the location and backtrace
+          runbook: docs/runbooks/failures.md#api-errors
+      - alert: LoanDeskDependencyErrors
+        expr: sum(count_over_time({service_name="api"} | json | event="dependency_error" [5m])) > 10
+        labels: { severity: page }
+        annotations:
+          summary: Calls to PostgreSQL or the object store are failing; each log line names the operation and code location
+          runbook: docs/runbooks/failures.md#api-errors
+
+  - name: loandesk-dependencies   # PromQL, over loandesk.dependency.* (src/api/infrastructure/dependency_metrics.rs)
+    rules:
+      - alert: LoanDeskSlowDependency
+        expr: |
+          histogram_quantile(0.95, sum by (le, dependency) (rate(loandesk_dependency_duration_ms_bucket[5m]))) > 1000
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: PostgreSQL or object-store calls are taking more than a second at the 95th percentile
+          runbook: docs/runbooks/failures.md#slow-requests
+      - alert: LoanDeskDependencyFailureRate
+        expr: sum(rate(loandesk_dependency_errors_total[5m])) > 0.2
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: More than one dependency call in five seconds is failing
+          runbook: docs/runbooks/failures.md#api-errors
 
   - name: loandesk-browser-errors   # Loki ruler (LogQL)
     rules:

@@ -2,6 +2,8 @@ pub mod api;
 pub mod application;
 pub mod bootstrapper;
 pub mod config;
+#[path = "infrastructure/dependency_metrics.rs"]
+pub mod dependency_metrics;
 #[path = "infrastructure/documents.rs"]
 pub mod document_store;
 pub mod domain;
