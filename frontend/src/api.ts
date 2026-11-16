@@ -172,7 +172,7 @@ async function request(
     if (res.status === 401 && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("loandesk:signed-out"));
     }
-    const fallback = res.status === 413 ? TOO_LARGE : `Request failed (${res.status})`;
+    const fallback = res.status === 413 ? tooLarge() : `Request failed (${res.status})`;
     throw new Error(data?.error ?? fallback);
   }
   return { data, headers: res.headers };
@@ -198,8 +198,38 @@ export async function apiPage<T>(method: string, path: string, body?: unknown): 
   return { items: res.data as T[], next: res.headers.get("x-next-cursor") };
 }
 
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const TOO_LARGE = "The file is too large (limit is 20 MB)";
+/** What this deployment told the page before sign-in (`GET /api/client-settings`). */
+export interface ClientSettings {
+  /** A public copy with fictional data: show the demo banner. */
+  hosted_demo: boolean;
+  /** Files are sent to and read from the API instead of document storage. */
+  documents_through_api: boolean;
+  max_upload_bytes: number;
+}
+
+/** Used until the API has answered, and if it cannot be asked. */
+const DEFAULT_SETTINGS: ClientSettings = {
+  hosted_demo: false,
+  documents_through_api: false,
+  max_upload_bytes: 20 * 1024 * 1024,
+};
+
+let settings = DEFAULT_SETTINGS;
+
+/** Asked once, when the page loads. */
+export async function loadClientSettings(): Promise<ClientSettings> {
+  try {
+    settings = await api<ClientSettings>("GET", "/client-settings");
+  } catch {
+    settings = DEFAULT_SETTINGS;
+  }
+  return settings;
+}
+
+const megabytes = (bytes: number) => Math.floor(bytes / (1024 * 1024));
+const tooLarge = () => `The file is too large (limit is ${megabytes(settings.max_upload_bytes)} MB)`;
+/** "PDF, 4 MB at most", next to the file picker. */
+export const uploadLimitHint = () => `PDF, ${megabytes(settings.max_upload_bytes)} MB at most`;
 
 interface UploadGrant {
   id: string;
@@ -210,32 +240,77 @@ interface UploadGrant {
 /**
  * Uploads one PDF. The file goes straight to document storage with a
  * short-lived grant from the API (it never passes through the API server);
- * the API then checks what arrived and queues it for reading.
+ * the API then checks what arrived and queues it for reading. A hosted demo
+ * has no route from the browser to storage: there the file is sent to the API,
+ * which checks it the same way.
  */
 export async function uploadDocument(applicationId: string, docType: string, file: File): Promise<void> {
-  if (file.size > MAX_UPLOAD_BYTES) throw new Error(TOO_LARGE);
+  if (file.size > settings.max_upload_bytes) throw new Error(tooLarge());
   const grant = await api<UploadGrant>("POST", `/applications/${applicationId}/documents`, {
     doc_type: docType,
     filename: file.name,
     size_bytes: file.size,
   });
-  const form = new FormData();
-  for (const [name, value] of Object.entries(grant.fields)) form.append(name, value);
-  // Storage requires the declared type; the API verifies the real content afterwards.
-  form.append("file", new Blob([file], { type: "application/pdf" }), "document.pdf");
-  const stored = await withTimeout(UPLOAD_TIMEOUT_MS, (signal) =>
-    fetch(grant.url, { method: "POST", body: form, credentials: "omit", signal }),
-  );
-  if (!stored.ok) {
-    throw new Error(stored.status === 400 || stored.status === 413 ? TOO_LARGE : "The upload was interrupted. Try again.");
+  const interrupted = "The upload was interrupted. Try again.";
+  if (settings.documents_through_api) {
+    const sent = await withTimeout(UPLOAD_TIMEOUT_MS, (signal) =>
+      fetch(grant.url, {
+        method: "PUT",
+        // The declared type; the API verifies the real content.
+        headers: { "X-Requested-With": "loandesk", "Content-Type": "application/pdf" },
+        body: file,
+        credentials: "same-origin",
+        signal,
+      }),
+    );
+    if (!sent.ok) {
+      const answer = sent.headers.get("content-type")?.includes("application/json") ? await sent.json() : null;
+      throw new Error(answer?.error ?? (sent.status === 413 ? tooLarge() : interrupted));
+    }
+  } else {
+    const form = new FormData();
+    for (const [name, value] of Object.entries(grant.fields)) form.append(name, value);
+    // Storage requires the declared type; the API verifies the real content afterwards.
+    form.append("file", new Blob([file], { type: "application/pdf" }), "document.pdf");
+    const stored = await withTimeout(UPLOAD_TIMEOUT_MS, (signal) =>
+      fetch(grant.url, { method: "POST", body: form, credentials: "omit", signal }),
+    );
+    if (!stored.ok) {
+      throw new Error(stored.status === 400 || stored.status === 413 ? tooLarge() : interrupted);
+    }
   }
   await api("POST", `/documents/${grant.id}/complete`);
 }
 
-/** Opens a stored document through a one-minute link issued (and audited) by the API. */
-export async function downloadDocument(documentId: string): Promise<void> {
-  const { url } = await api<{ url: string }>("POST", `/documents/${documentId}/download-url`);
-  window.location.assign(url);
+/**
+ * Opens a stored document through a one-minute link issued (and audited) by
+ * the API; in a hosted demo, saves the file the API itself returns (audited
+ * the same way).
+ */
+export async function downloadDocument(documentId: string, filename: string): Promise<void> {
+  if (!settings.documents_through_api) {
+    const { url } = await api<{ url: string }>("POST", `/documents/${documentId}/download-url`);
+    window.location.assign(url);
+    return;
+  }
+  const res = await withTimeout(REQUEST_TIMEOUT_MS, (signal) =>
+    fetch(`/api/documents/${documentId}/content`, {
+      headers: { "X-Requested-With": "loandesk" },
+      credentials: "same-origin",
+      signal,
+    }),
+  );
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event("loandesk:signed-out"));
+    throw new Error(`The document could not be downloaded (${res.status})`);
+  }
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([await res.blob()], { type: "application/pdf" }));
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
 
 export const money = (v: number | null | undefined) =>

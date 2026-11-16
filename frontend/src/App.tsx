@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ROLE_LABELS, User } from "./api";
+import { api, loadClientSettings, ROLE_LABELS, User } from "./api";
 import ApplicationList from "./pages/ApplicationList";
 import NewApplication from "./pages/NewApplication";
 import ApplicationView from "./pages/ApplicationView";
@@ -70,12 +70,26 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
   );
 }
 
+/** Shown on every screen of a hosted demo, signed in or not. */
+function DemoBanner() {
+  return (
+    <div className="demo-banner" role="note">
+      Demo. All data is fake. This copy resets periodically.
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [hostedDemo, setHostedDemo] = useState(false);
   const route = useRoute();
 
   useEffect(() => {
-    api<User>("GET", "/auth/me").then(setUser, () => setUser(null));
+    // The deployment's settings first (banner, upload route and limit), then the session.
+    loadClientSettings()
+      .then((settings) => setHostedDemo(settings.hosted_demo))
+      .then(() => api<User>("GET", "/auth/me"))
+      .then(setUser, () => setUser(null));
     const signedOut = () => setUser(null);
     window.addEventListener("loandesk:signed-out", signedOut);
     return () => window.removeEventListener("loandesk:signed-out", signedOut);
@@ -84,12 +98,15 @@ export default function App() {
   if (user === undefined) return null;
   if (user === null) {
     return (
-      <Login
-        onLogin={(u) => {
-          window.location.hash = "#/";
-          setUser(u);
-        }}
-      />
+      <>
+        {hostedDemo && <DemoBanner />}
+        <Login
+          onLogin={(u) => {
+            window.location.hash = "#/";
+            setUser(u);
+          }}
+        />
+      </>
     );
   }
 
@@ -111,6 +128,7 @@ export default function App() {
 
   return (
     <>
+      {hostedDemo && <DemoBanner />}
       <header className="topbar">
         <a className="brand" href="#/">
           LoanDesk
