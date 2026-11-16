@@ -26,6 +26,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=domain/schemas");
     println!("cargo:rerun-if-changed=api/controllers");
     println!("cargo:rerun-if-changed=build_assets.rs");
+    // include_dir! does not track its directory on a stable toolchain.
+    println!("cargo:rerun-if-changed=web-dist");
     println!("cargo:rerun-if-changed=.forklaunch/contracts");
     let evidence = ServiceBuild::capture(&[])?;
     let output = build::service_sdks(&contracts::registry(), "api", "ForkLaunchClient")?;

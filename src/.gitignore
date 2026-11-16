@@ -15,3 +15,7 @@ lib
 !.env.example
 !.env.sample
 !.env.template
+
+# The API embeds the built front end; the image is built from git, without Node.
+!api/web-dist
+!api/web-dist/**
