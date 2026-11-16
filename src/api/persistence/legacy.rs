@@ -2,11 +2,13 @@
 //!
 //! That version kept owner names, dates of birth, free text and file names in
 //! clear, and SSNs under its own AES-256-GCM key. `api --migrate` calls this
-//! after the schema migrations: every such value is sealed as a ForkLaunch
-//! protected field and the old column is emptied, in one transaction. It is
-//! idempotent (rows already converted are skipped) and `--migrate` fails if
-//! anything is left over. Rows are read and converted in bounded batches, so
-//! memory use does not grow with the size of the tables. Moving the stored
+//! after the additive schema migrations and outside their transactions: every
+//! such value is sealed as a ForkLaunch protected field and the old column is
+//! emptied. Rows are read and converted in bounded batches (`BATCH`), and each
+//! batch is committed on its own, so no transaction or lock grows with the
+//! size of the tables and an interrupted run continues where it stopped (rows
+//! already converted no longer match the batch query). `--migrate` fails if
+//! anything is left over, and only then drops the old columns (0019). Moving the stored
 //! files is a separate step, described in docs/migration.md.
 use crate::{
     domain::crypto,
@@ -14,7 +16,7 @@ use crate::{
     persistence::Vault,
 };
 use forklaunch_core::config;
-use sqlx::{PgConnection, Row};
+use sqlx::{Connection, PgConnection, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -32,6 +34,20 @@ impl Pending {
     pub fn total(&self) -> i64 {
         self.owners + self.applications + self.documents
     }
+}
+
+/// Whether the pre-ForkLaunch plaintext columns still exist. They are dropped
+/// by migration 0019 once this module has emptied them; after that there is
+/// nothing left for it to do.
+pub async fn columns_present(connection: &mut PgConnection) -> Result<bool> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_schema = 'public' AND table_name = 'owners'
+                           AND column_name = 'ssn_encrypted')",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .map_err(storage("look for legacy columns"))
 }
 
 pub async fn pending(connection: &mut PgConnection) -> Result<Pending> {
@@ -125,13 +141,14 @@ pub async fn reencrypt(connection: &mut PgConnection, tenant: Uuid) -> Result<()
     // owners' names, so both are converted together. A converted row no longer
     // matches the WHERE clause, so every round reads the next batch.
     loop {
+        let mut tx = connection.begin().await.map_err(storage("begin legacy batch"))?;
         let applications = sqlx::query(
             "SELECT id, purpose, decision_note FROM applications
              WHERE purpose IS NOT NULL OR decision_note IS NOT NULL
              ORDER BY id LIMIT $1",
         )
         .bind(BATCH)
-        .fetch_all(&mut *connection)
+        .fetch_all(&mut *tx)
         .await
         .map_err(storage("read legacy applications"))?;
         if applications.is_empty() {
@@ -145,7 +162,7 @@ pub async fn reencrypt(connection: &mut PgConnection, tenant: Uuid) -> Result<()
         )
         .bind(&ids)
         .bind(MAX_OWNERS_PER_BATCH + 1)
-        .fetch_all(&mut *connection)
+        .fetch_all(&mut *tx)
         .await
         .map_err(storage("read legacy owners"))?;
         if owners.len() > usize::try_from(MAX_OWNERS_PER_BATCH).unwrap_or(usize::MAX) {
@@ -157,7 +174,7 @@ pub async fn reencrypt(connection: &mut PgConnection, tenant: Uuid) -> Result<()
         let mut names: BTreeMap<Uuid, Vec<String>> = BTreeMap::new();
         for row in &owners {
             let owner = legacy_owner(row);
-            seal_owner(connection, &vault, &mut cipher, &owner).await?;
+            seal_owner(&mut tx, &vault, &mut cipher, &owner).await?;
             names.entry(owner.application).or_default().push(owner.name);
             owners_done += 1;
         }
@@ -187,38 +204,42 @@ pub async fn reencrypt(connection: &mut PgConnection, tenant: Uuid) -> Result<()
             .bind(sealed_purpose.as_ref().map(|field| field.ciphertext().to_owned()))
             .bind(sealed_note.as_ref().map(|field| field.ciphertext().to_owned()))
             .bind(&tokens)
-            .execute(&mut *connection)
+            .execute(&mut *tx)
             .await
             .map_err(storage("re-encrypt application"))?;
             applications_done += 1;
         }
+        tx.commit().await.map_err(storage("commit legacy batch"))?;
     }
 
     // Owners whose application was already converted (an interrupted earlier run).
     loop {
+        let mut tx = connection.begin().await.map_err(storage("begin legacy batch"))?;
         let owners = sqlx::query(
             "SELECT id, application_id, full_name, ssn_encrypted, date_of_birth::text AS date_of_birth
              FROM owners WHERE ssn_ciphertext IS NULL ORDER BY id LIMIT $1",
         )
         .bind(BATCH)
-        .fetch_all(&mut *connection)
+        .fetch_all(&mut *tx)
         .await
         .map_err(storage("read legacy owners"))?;
         if owners.is_empty() {
             break;
         }
         for row in &owners {
-            seal_owner(connection, &vault, &mut cipher, &legacy_owner(row)).await?;
+            seal_owner(&mut tx, &vault, &mut cipher, &legacy_owner(row)).await?;
             owners_done += 1;
         }
+        tx.commit().await.map_err(storage("commit legacy batch"))?;
     }
 
     loop {
+        let mut tx = connection.begin().await.map_err(storage("begin legacy batch"))?;
         let documents = sqlx::query(
             "SELECT id, filename FROM documents WHERE filename IS NOT NULL ORDER BY id LIMIT $1",
         )
         .bind(BATCH)
-        .fetch_all(&mut *connection)
+        .fetch_all(&mut *tx)
         .await
         .map_err(storage("read legacy documents"))?;
         if documents.is_empty() {
@@ -232,11 +253,12 @@ pub async fn reencrypt(connection: &mut PgConnection, tenant: Uuid) -> Result<()
             )
             .bind(id)
             .bind(vault.seal(&members.filename, id, &label)?.ciphertext())
-            .execute(&mut *connection)
+            .execute(&mut *tx)
             .await
             .map_err(storage("re-encrypt document name"))?;
             documents_done += 1;
         }
+        tx.commit().await.map_err(storage("commit legacy batch"))?;
     }
     tracing::info!(
         event = "legacy_rows_reencrypted",

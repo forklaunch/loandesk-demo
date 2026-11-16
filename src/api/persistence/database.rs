@@ -4,7 +4,6 @@ use forklaunch_core::{
     config,
     persistence::{PostgresConnectionPolicy, connect_migration_postgres},
 };
-use sqlx::Connection;
 use uuid::Uuid;
 
 pub struct DatabaseConfig {
@@ -52,15 +51,26 @@ impl DatabaseConfig {
     }
 }
 
+/// A pool for the schema-owner role (`MIGRATION_DATABASE_URL`) and the tenant
+/// it works on. Used by `--migrate` and `--rotate-keys`; never by the server.
+pub async fn migration_pool() -> Result<(sqlx::PgPool, Uuid)> {
+    let url: String = config::required("MIGRATION_DATABASE_URL")?;
+    let pool = connect_migration_postgres(&url, policy()?)
+        .await
+        .map_err(storage("connect for migration"))?;
+    Ok((pool, tenant()?))
+}
+
+/// The last migration that only adds (columns, tables, indexes). Later ones
+/// remove what the one-time re-encryption has emptied, so `migrate` runs that
+/// re-encryption between the two groups.
+pub const LAST_EXPAND_MIGRATION: i64 = 18;
+
 /// Applies the versioned migrations with the schema-owner role, adopting any
 /// existing rows into the configured tenant, then re-encrypts values an
 /// earlier version stored in clear (see `persistence::legacy`).
 pub async fn migrate() -> Result<()> {
-    let url: String = config::required("MIGRATION_DATABASE_URL")?;
-    let tenant = tenant()?;
-    let pool = connect_migration_postgres(&url, policy()?)
-        .await
-        .map_err(storage("connect for migration"))?;
+    let (pool, tenant) = migration_pool().await?;
     let result = async {
         let mut connection =
             pool.acquire().await.map_err(storage("acquire migration connection"))?;
@@ -69,10 +79,29 @@ pub async fn migrate() -> Result<()> {
             .execute(&mut *connection)
             .await
             .map_err(storage("bind migration tenant"))?;
-        sqlx::migrate!("./migrations")
-            .run(&mut *connection)
+        // Expand, backfill, contract, in that order and in one command:
+        // everything up to the last additive migration, then the one-time
+        // re-encryption of values an earlier version stored in clear, and only
+        // when none are left the migrations that drop the old columns.
+        let migrator = sqlx::migrate!("./migrations");
+        migrator
+            .run_to(LAST_EXPAND_MIGRATION, &mut *connection)
             .await
             .map_err(storage("apply migrations"))?;
+        let (mut before, mut after) = (0, 0);
+        if super::legacy::columns_present(&mut connection).await? {
+            before = super::legacy::pending(&mut connection).await?.total();
+            if before > 0 {
+                super::legacy::reencrypt(&mut connection, tenant).await?;
+            }
+            after = super::legacy::pending(&mut connection).await?.total();
+            if after > 0 {
+                return Err(AppError::Storage(
+                    "legacy plaintext rows remain after migration".into(),
+                ));
+            }
+        }
+        migrator.run(&mut *connection).await.map_err(storage("apply migrations"))?;
         // An index build that was interrupted leaves an INVALID index behind,
         // which PostgreSQL keeps but never uses (see migrations 0003 onward).
         let invalid: i64 = sqlx::query_scalar(
@@ -88,22 +117,13 @@ pub async fn migrate() -> Result<()> {
                     .into(),
             ));
         }
-        let before = super::legacy::pending(&mut connection).await?;
-        if before.total() > 0 {
-            let mut tx = connection.begin().await.map_err(storage("begin legacy migration"))?;
-            super::legacy::reencrypt(&mut tx, tenant).await?;
-            tx.commit().await.map_err(storage("commit legacy migration"))?;
-        }
-        let after = super::legacy::pending(&mut connection).await?;
+        super::rotation::register_active_key(&mut connection, tenant).await?;
         tracing::info!(
             event = "migration_complete",
-            legacy_rows_before = before.total(),
-            legacy_rows_after = after.total(),
+            legacy_rows_before = before,
+            legacy_rows_after = after,
             "database migrated"
         );
-        if after.total() > 0 {
-            return Err(AppError::Storage("legacy plaintext rows remain after migration".into()));
-        }
         Ok(())
     }
     .await;

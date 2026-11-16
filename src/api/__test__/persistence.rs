@@ -23,7 +23,7 @@ fn migrations() -> Vec<(String, String)> {
         })
         .collect();
     files.sort();
-    assert!(files.len() >= 14, "expected the 14 known migrations, found {}", files.len());
+    assert!(files.len() >= 19, "expected the 19 known migrations, found {}", files.len());
     files
 }
 
@@ -60,9 +60,10 @@ fn indexes() -> Vec<(String, String, String)> {
     found
 }
 
-/// Columns still present for rollback but emptied by `api --migrate`; they are
-/// not part of the stored models (see persistence/legacy.rs).
-const LEGACY_COLUMNS: [(&str, &str); 9] = [
+/// Columns of the pre-ForkLaunch schema that held personal data in clear.
+/// `api --migrate` re-encrypted them into the `*_ciphertext` columns and
+/// migration 0019 dropped them.
+const DROPPED_PLAINTEXT_COLUMNS: [(&str, &str); 7] = [
     ("owners", "full_name"),
     ("owners", "ssn_encrypted"),
     ("owners", "ssn_last4"),
@@ -70,11 +71,10 @@ const LEGACY_COLUMNS: [(&str, &str); 9] = [
     ("applications", "purpose"),
     ("applications", "decision_note"),
     ("documents", "filename"),
-    ("documents", "attempts"),
-    ("documents", "locked_at"),
 ];
 
-/// table -> columns, read from CREATE TABLE and ALTER TABLE ... ADD COLUMN.
+/// table -> columns as they are after the last migration, read from CREATE
+/// TABLE and ALTER TABLE ... ADD COLUMN / DROP COLUMN.
 fn schema() -> BTreeMap<String, BTreeSet<String>> {
     let mut tables: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut current: Option<String> = None;
@@ -102,11 +102,19 @@ fn schema() -> BTreeMap<String, BTreeSet<String>> {
                 && !line.is_empty()
                 && !line.starts_with("--")
                 && !line.starts_with("CONSTRAINT")
-                && words[0].chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                && words[0]
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
             {
                 tables.entry(table.clone()).or_default().insert(words[0].to_owned());
             } else if !creating && line.starts_with("ADD COLUMN") {
                 tables.entry(table.clone()).or_default().insert(words[2].to_owned());
+            } else if !creating && line.starts_with("DROP COLUMN") {
+                let column = words[2].trim_end_matches([',', ';']);
+                assert!(
+                    tables.entry(table.clone()).or_default().remove(column),
+                    "{table}.{column} is dropped but was never added"
+                );
             }
         }
         if line.ends_with(';') {
@@ -131,12 +139,122 @@ fn every_table_and_column_in_the_migrations_has_a_classification() {
             .get(table.as_str())
             .unwrap_or_else(|| panic!("table `{table}` has no classified stored model"));
         for column in columns {
-            let legacy = LEGACY_COLUMNS.contains(&(table.as_str(), column.as_str()));
             assert!(
-                legacy || fields.contains(column.as_str()),
+                fields.contains(column.as_str()),
                 "column `{table}.{column}` is not classified: add it to the stored model with a level"
             );
         }
+        // And the other way round: a stored model names no column that does not exist.
+        for field in fields {
+            assert!(
+                columns.contains(*field),
+                "`{table}.{field}` is classified but not in the schema"
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_plaintext_columns_are_dropped_and_only_after_the_backfill() {
+    use api::persistence::database::LAST_EXPAND_MIGRATION;
+    let schema = schema();
+    for (table, column) in DROPPED_PLAINTEXT_COLUMNS {
+        assert!(!schema[table].contains(column), "`{table}.{column}` still exists");
+    }
+    // `api --migrate` applies migrations up to LAST_EXPAND_MIGRATION, runs the
+    // re-encryption, and only then the rest. So nothing up to that point may
+    // remove anything, and the first migration after it must refuse to run
+    // while plaintext is left.
+    let migrations = migrations();
+    for (file, sql) in &migrations {
+        let version: i64 = file[..4].parse().expect("migration files start with a 4-digit version");
+        let removes = statements(sql).iter().any(|statement| statement.contains("DROP COLUMN"));
+        assert_eq!(
+            removes,
+            version > LAST_EXPAND_MIGRATION,
+            "{file}: columns may only be dropped after the backfill (after {LAST_EXPAND_MIGRATION:04})"
+        );
+        if removes {
+            assert!(sql.contains("RAISE EXCEPTION"), "{file} must refuse to drop readable data");
+            assert!(sql.contains("lock_timeout"), "{file} must not queue behind long readers");
+        }
+    }
+    assert_eq!(migrations.len(), usize::try_from(LAST_EXPAND_MIGRATION).unwrap() + 1);
+}
+
+#[test]
+fn schema_changes_stay_compatible_with_the_running_version() {
+    // During a rolling deploy the previous release keeps running against the
+    // new schema. After the cutover migration (0002), every change must be one
+    // the previous release cannot notice: new columns are nullable or have a
+    // default, nothing is renamed or retyped, and a column is dropped only
+    // once no release reads it (see the test above).
+    for (file, sql) in migrations().iter().skip(2) {
+        for statement in statements(sql) {
+            let upper = statement.to_uppercase();
+            for breaking in ["RENAME ", " TYPE ", "DROP TABLE", "SET NOT NULL", "DROP DEFAULT"] {
+                assert!(
+                    !upper.contains(breaking),
+                    "{file}: `{breaking}` breaks the running version"
+                );
+            }
+        }
+        for line in sql.lines().map(str::trim).filter(|line| line.starts_with("ADD COLUMN")) {
+            let upper = line.to_uppercase();
+            assert!(
+                !upper.contains("NOT NULL") || upper.contains("DEFAULT"),
+                "{file}: `{line}` would fail the running version's inserts"
+            );
+        }
+    }
+}
+
+#[test]
+fn tenant_owned_tables_carry_a_required_tenant_column() {
+    // Every table has `tenant_id`, NOT NULL, filled from the trusted session
+    // setting, with row-level security enabled and forced.
+    let schema = schema();
+    let cutover = &migrations()[1].1;
+    let adopted: Vec<&str> = cutover
+        .lines()
+        .find(|line| line.contains("FOREACH t IN ARRAY"))
+        .expect("0002 lists the tables it adopts")
+        .split('\'')
+        .filter(|part| part.chars().all(|c| c.is_ascii_lowercase() || c == '_') && !part.is_empty())
+        .collect();
+    for required in [
+        "ALTER COLUMN tenant_id SET NOT NULL",
+        "ENABLE ROW LEVEL SECURITY",
+        "FORCE ROW LEVEL SECURITY",
+        "USING (tenant_id = current_setting(''forklaunch.tenant_id'', true))",
+        "WITH CHECK (tenant_id = current_setting(''forklaunch.tenant_id'', true))",
+    ] {
+        assert!(cutover.contains(required), "0002 no longer applies `{required}` to every table");
+    }
+    let all = migrations().into_iter().map(|(_, sql)| sql).collect::<Vec<_>>().join("\n");
+    for (table, columns) in &schema {
+        assert!(columns.contains("tenant_id"), "table `{table}` has no tenant_id column");
+        let created_with_scope = all
+            .contains(&format!("ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
+            && all.contains(&format!("ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
+            && all.contains(&format!("CREATE POLICY forklaunch_tenant_policy ON {table}"));
+        assert!(
+            adopted.contains(&table.as_str()) || created_with_scope,
+            "table `{table}` is not tenant-scoped with forced row-level security"
+        );
+    }
+    assert_eq!(adopted, ["users", "sessions", "applications", "owners", "documents", "audit_log"]);
+    // A table created later declares the column NOT NULL itself.
+    assert!(cutover.contains(
+        "tenant_id          text NOT NULL DEFAULT current_setting('forklaunch.tenant_id')"
+    ));
+    // The models agree: every stored model has the field.
+    for entity in declarations() {
+        assert!(
+            entity.fields.iter().any(|field| field.storage_name == "tenant_id"),
+            "{} has no tenant_id",
+            entity.storage
+        );
     }
 }
 
@@ -227,11 +345,11 @@ fn indexes_on_existing_tables_are_built_without_blocking_writes() {
             assert_eq!(statements.len(), 1, "{file} must hold exactly one statement");
         }
     }
-    assert_eq!(checked, 12, "expected the 12 indexes added to existing tables");
+    assert_eq!(checked, 15, "expected the 15 indexes added to existing tables");
 }
 
 #[test]
-fn every_filter_and_sort_the_services_run_has_an_index() {
+fn columns_used_in_filters_and_sorts_are_indexed() {
     // (table, leading columns of an index, the query it serves). Row-level
     // security adds `tenant_id = ...` to every statement, hence the prefix.
     let needed = [
@@ -254,6 +372,9 @@ fn every_filter_and_sort_the_services_run_has_an_index() {
         ("audit_log", "(user_id)", "audit trail by actor"),
         ("audit_log", "(entity_id)", "audit trail by record"),
         ("audit_log", "(tenant_id, at)", "audit trail by time"),
+        ("audit_log", "(tenant_id, action, at DESC)", "last access review, key registration"),
+        ("applications", "(tenant_id, decided_at)", "retention purge of decided applications"),
+        ("documents", "(tenant_id, uploaded_at)", "retention purge of unfinished uploads"),
     ];
     let indexes = indexes();
     for (table, columns, purpose) in needed {

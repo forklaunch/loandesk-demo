@@ -29,6 +29,20 @@ pub struct StoredUser {
     pub locked_until: Option<DateTime<Utc>>,
     #[compliance(level = "none")]
     pub created_at: DateTime<Utc>,
+    /// Last successful sign-in; read by the access review and the stale-account job.
+    #[compliance(level = "none", nullable)]
+    pub last_login_at: Option<DateTime<Utc>>,
+    /// From when inactivity is counted (creation, or re-enabling).
+    #[compliance(level = "none")]
+    pub access_baseline_at: DateTime<Utc>,
+    /// Set while the account is disabled: it cannot sign in and has no sessions.
+    #[compliance(level = "none", nullable)]
+    pub disabled_at: Option<DateTime<Utc>>,
+    /// `admin` or `inactive`.
+    #[compliance(level = "none", nullable)]
+    pub disabled_reason: Option<String>,
+    #[compliance(level = "none", nullable)]
+    pub password_changed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, ComplianceMetadata)]

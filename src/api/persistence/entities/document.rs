@@ -32,6 +32,12 @@ pub struct StoredDocument {
     pub uploaded_at: DateTime<Utc>,
     #[compliance(level = "none")]
     pub status: String,
+    /// Number of the worker's latest attempt at reading the file.
+    #[compliance(level = "none")]
+    pub attempts: i32,
+    /// When that attempt started; cleared when it ends.
+    #[compliance(level = "none", nullable)]
+    pub locked_at: Option<DateTime<Utc>>,
     #[compliance(level = "none", nullable)]
     pub processed_at: Option<DateTime<Utc>>,
     #[compliance(level = "none", nullable)]
