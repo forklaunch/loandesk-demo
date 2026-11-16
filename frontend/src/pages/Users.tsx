@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AccessReview, accessReviewCsv, api, apiPage, date, Role, ROLE_LABELS, User } from "../api";
+import { ErrorMessage, Notice, Section } from "../ui";
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 const emptyForm = { full_name: "", email: "", password: "", role: "relationship_manager" as Role };
 
 export default function Users({ me }: { me: User }) {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[] | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,7 +63,10 @@ export default function Users({ me }: { me: User }) {
 
   async function setDisabled(u: User, disabled: boolean) {
     setError("");
-    if (disabled && !window.confirm(`Disable ${u.full_name}? They are signed out and cannot sign in until re-enabled.`)) {
+    if (
+      disabled &&
+      !window.confirm(`Disable ${u.full_name}? They are signed out and cannot sign in until re-enabled.`)
+    ) {
       return;
     }
     try {
@@ -100,123 +104,170 @@ export default function Users({ me }: { me: User }) {
   return (
     <>
       <div className="page-head">
-        <h1>Users</h1>
+        <div>
+          <h1>Users</h1>
+          <p className="sub">Who can sign in, with which role. Admins manage accounts and never see applications.</p>
+        </div>
       </div>
-      {error && <div className="error">{error}</div>}
-      <div className="card table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Added</th>
-              <th>Last sign-in</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="static">
-                <td>{u.full_name}</td>
-                <td>{u.email}</td>
-                <td>
-                  {u.id === me.id ? (
-                    <span title="You cannot change your own role">{ROLE_LABELS[u.role]} (you)</span>
-                  ) : (
-                    <select value={u.role} onChange={(e) => setRole(u.id, e.target.value as Role)} aria-label={`Role for ${u.full_name}`}>
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {ROLE_LABELS[r]}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </td>
-                <td>{date(u.created_at ?? null)}</td>
-                <td>{u.last_login_at ? date(u.last_login_at) : "Never"}</td>
-                <td>
-                  {u.disabled_at ? (
-                    <span className="badge status-declined">Disabled</span>
-                  ) : reviewed.get(u.id)?.stale ? (
-                    <span className="badge status-submitted" title={`Unused for ${reviewed.get(u.id)?.days_since_last_use} days`}>
-                      Stale
-                    </span>
-                  ) : (
-                    <span className="badge status-approved">Active</span>
-                  )}{" "}
-                  {u.id !== me.id && (
-                    <button className="link" onClick={() => setDisabled(u, !u.disabled_at)}>
-                      {u.disabled_at ? "Enable" : "Disable"}
-                    </button>
-                  )}
-                </td>
+      {error && <ErrorMessage>{error}</ErrorMessage>}
+      <div className="card">
+        {!users && !error && (
+          <div className="state" role="status">
+            Loading users…
+          </div>
+        )}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Added</th>
+                <th>Last sign-in</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(users ?? []).map((u) => (
+                <tr key={u.id}>
+                  <td className="primary-text">{u.full_name}</td>
+                  <td>{u.email}</td>
+                  <td>
+                    {u.id === me.id ? (
+                      <span title="You cannot change your own role">
+                        {ROLE_LABELS[u.role]} <span className="muted">(you)</span>
+                      </span>
+                    ) : (
+                      <select
+                        value={u.role}
+                        onChange={(e) => setRole(u.id, e.target.value as Role)}
+                        aria-label={`Role for ${u.full_name}`}
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {ROLE_LABELS[r]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td className="nowrap">{date(u.created_at ?? null)}</td>
+                  <td className="nowrap">{u.last_login_at ? date(u.last_login_at) : "Never"}</td>
+                  <td className="nowrap">
+                    {u.disabled_at ? (
+                      <span className="badge status-declined">Disabled</span>
+                    ) : reviewed.get(u.id)?.stale ? (
+                      <span
+                        className="badge status-submitted"
+                        title={`Unused for ${reviewed.get(u.id)?.days_since_last_use} days`}
+                      >
+                        Stale
+                      </span>
+                    ) : (
+                      <span className="badge status-approved">Active</span>
+                    )}{" "}
+                    {u.id !== me.id && (
+                      <button className="link" onClick={() => setDisabled(u, !u.disabled_at)}>
+                        {u.disabled_at ? "Enable" : "Disable"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {review && (
-        <section className="card">
-          <h2>Access review</h2>
-          {notice && <p>{notice}</p>}
-          <p className={review.review_overdue ? "error" : "muted"}>
-            {review.last_review_at
-              ? `Last review recorded ${date(review.last_review_at)}.`
-              : "No review has been recorded yet."}{" "}
-            {review.review_overdue
-              ? `A review is due (every ${review.review_interval_days} days).`
-              : `The next one is due within ${review.review_interval_days} days of it.`}
-          </p>
-          <p className="muted">
-            {review.users.length} accounts, {review.stale_accounts} unused for more than {review.stale_after_days} days.
-            Go through the list above (roles, two-factor, last sign-in), disable what is no longer needed, then record
-            the review. Unused accounts are disabled automatically after {review.stale_after_days} days.
-          </p>
-          <button onClick={downloadReview}>Download as CSV</button>{" "}
-          <button className="primary" onClick={recordReview}>
-            Record that I reviewed access
-          </button>
-        </section>
+        <Section
+          title="Access review"
+          aside={
+            review.review_overdue ? (
+              <span className="badge risk-medium">Review due</span>
+            ) : review.last_review_at ? (
+              <span className="badge status-approved">Up to date</span>
+            ) : (
+              <span className="badge">Not yet recorded</span>
+            )
+          }
+        >
+          <div className="card-body">
+            {notice && <Notice>{notice}</Notice>}
+            <p className={review.review_overdue ? undefined : "muted"}>
+              {review.last_review_at
+                ? `Last review recorded ${date(review.last_review_at)}.`
+                : "No review has been recorded yet."}{" "}
+              {review.review_overdue
+                ? `A review is due (every ${review.review_interval_days} days).`
+                : `The next one is due within ${review.review_interval_days} days of it.`}
+            </p>
+            <p className="muted">
+              {review.users.length} accounts, {review.stale_accounts} unused for more than {review.stale_after_days}{" "}
+              days. Go through the list above (roles, two-factor, last sign-in), disable what is no longer needed, then
+              record the review. Unused accounts are disabled automatically after {review.stale_after_days} days.
+            </p>
+            <div className="actions">
+              <button onClick={downloadReview}>Download as CSV</button>
+              <button className="primary" onClick={recordReview}>
+                Record that I reviewed access
+              </button>
+            </div>
+          </div>
+        </Section>
       )}
 
-      <form className="card" onSubmit={add}>
-        <h2>Add a user</h2>
-        <div className="grid">
-          <label>
-            Full name
-            <input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
-          </label>
-          <label>
-            Email
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-          </label>
-          <label>
-            Role
-            <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Initial password (12+ characters)
-            <input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              minLength={12}
-              autoComplete="new-password"
-              required
-            />
-          </label>
-        </div>
-        <button className="primary" disabled={busy}>
-          Add user
-        </button>
+      <form onSubmit={add}>
+        <Section title="Add a user">
+          <div className="card-body">
+            <div className="grid">
+              <label>
+                Full name
+                <input
+                  value={form.full_name}
+                  onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Role
+                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Initial password (12+ characters)
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  minLength={12}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+            </div>
+            <div className="form-foot">
+              <button className="primary" disabled={busy} aria-busy={busy}>
+                Add user
+              </button>
+            </div>
+          </div>
+        </Section>
       </form>
     </>
   );
