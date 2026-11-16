@@ -120,6 +120,15 @@ restore them with `git checkout src/api/sdk` afterwards, or CI's "generated sour
   edited by hand. `forklaunch sync` was not run against the renamed projects (the dry run used
   `--skip-sync`): run a release with `--skip-sync` until that has been looked at.
 
+## Object tags on the platform
+
+A server-side write labels the stored file with its classification (an S3 object tag). The
+platform's bucket grant covers `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
+`s3:AbortMultipartUpload` and `s3:ListBucket`, not `s3:PutObjectTagging`, so a tagged write is
+refused (found on the first deploy, 2026-11-16: the API failed while seeding with "store object").
+Until the platform grants tagging, store `S3_OBJECT_TAGS=false` at application scope. The
+classification is still recorded on every document's database row.
+
 ## What runs where (once the API scales to zero)
 
 | Part | Compute | Why |

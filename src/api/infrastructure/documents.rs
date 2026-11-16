@@ -33,6 +33,10 @@ pub struct DocumentStore {
     /// the first to the second.
     endpoint: Option<String>,
     public_base: Option<String>,
+    /// Whether server-side writes also label the object with its
+    /// classification. Off (`S3_OBJECT_TAGS=false`) where the storage role may
+    /// not tag objects; the classification is always on the database row.
+    tag_objects: bool,
 }
 
 pub struct UploadTarget {
@@ -67,6 +71,7 @@ impl DocumentStore {
             public_base: config::optional::<String>("S3_PUBLIC_URL")?
                 .map(|url| url.trim_end_matches('/').to_owned())
                 .filter(|url| !url.is_empty()),
+            tag_objects: config::optional::<bool>("S3_OBJECT_TAGS")?.unwrap_or(true),
         })
     }
 
@@ -166,9 +171,10 @@ impl DocumentStore {
     /// the hosted demo's upload through the API.
     pub async fn put(&self, key: &str, bytes: Vec<u8>) -> Result<()> {
         self.check_tenant(key)?;
-        let metadata = ObjectMetadata::new()
-            .with_content_type("application/pdf")
-            .with_tag("classification", DOCUMENT_CLASSIFICATION);
+        let mut metadata = ObjectMetadata::new().with_content_type("application/pdf");
+        if self.tag_objects {
+            metadata = metadata.with_tag("classification", DOCUMENT_CLASSIFICATION);
+        }
         measured(OBJECT_STORE, "put", self.store.put(key, bytes, metadata))
             .await
             .map_err(storage("store object"))?;
