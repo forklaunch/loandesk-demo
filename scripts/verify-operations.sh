@@ -78,7 +78,7 @@ VALUES
 ok "no owner name, SSN, date of birth, free text, file name, password or signed link is in any container log"
 
 # --- 2. browser errors are reported ------------------------------------------
-line="$(logs api | grep '"browser_error"\|event=browser_error\|browser_error' | tail -1)"
+line="$(logs loans-service | grep '"browser_error"\|event=browser_error\|browser_error' | tail -1)"
 [ -n "$line" ] || fail "no browser_error line in the API log (scripts/e2e.py reports one)"
 case "$line" in *TypeError*index-e2e.js:40:1234*) ;; *) fail "the browser error line lacks its class or stack frame: $line" ;; esac
 case "$line" in *"must be 9 digits"*) fail "the browser error line contains the error message" ;; esac
@@ -86,7 +86,7 @@ ok "a browser error is logged with its class and stack frames, without its messa
 
 # --- 3. trace context crosses the queue --------------------------------------
 trace="4bf92f3577b34da6a3ce929d0e0e4736"   # sent by scripts/e2e.py with the upload
-logs extraction | grep "job_completed" | grep -q "$trace" \
+logs loans-worker | grep "job_completed" | grep -q "$trace" \
   || fail "no completed job in the worker log carries trace id $trace of the request that queued it"
 ok "the worker's job log carries the trace id of the request that queued the job"
 
@@ -101,7 +101,7 @@ wait_for /api/readyz 200 60 || fail "readiness did not recover after the object 
 ok "readiness recovers when the dependency returns"
 
 # --- 5. graceful, logged shutdown --------------------------------------------
-for service in api extraction; do
+for service in loans-service loans-worker; do
   docker compose stop "$service" >/dev/null 2>&1
   out="$(logs "$service")"
   printf '%s\n' "$out" | grep -q 'shutdown_started' || fail "$service did not log shutdown_started on SIGTERM"

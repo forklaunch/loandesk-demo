@@ -69,6 +69,7 @@ fn application_sources() -> Vec<(String, String)> {
     sources.extend(files(".github", &[".yml", ".yaml", ".mjs", ".json"]));
     for file in [
         "docker-compose.yaml",
+        "compose.backend.env",
         "Dockerfile.rust",
         "frontend/Dockerfile",
         ".env.example",
@@ -435,6 +436,73 @@ fn no_secrets_are_hardcoded_in_source() {
     // A secret scan runs on every pull request, over the whole history.
     let checks = read(".github/workflows/checks.yml");
     assert!(checks.contains("ghcr.io/gitleaks/gitleaks:") && checks.contains("fetch-depth: 0"));
+}
+
+#[test]
+fn a_release_sees_one_module_one_bucket_and_no_local_settings() {
+    // The platform pairs `<m>-service` with `<m>-worker`: one database, one
+    // pair of roles, one migration (docs/hosting.md). The CLI names a worker
+    // project's component `<project>-worker`.
+    let manifest = read(".forklaunch/manifest.toml");
+    assert!(manifest.contains("name = \"loans-service\"") && manifest.contains("name = \"loans\""));
+    assert!(
+        manifest.contains("crateName = \"api\"") && manifest.contains("crateName = \"extraction\"")
+    );
+    assert_eq!(manifest.matches("object_store = \"s3\"").count(), 1, "one store, declared once");
+    // The CLI reads each matching Compose service's own `environment` as what
+    // a deployment needs. Local-only values live in the shared file instead.
+    let compose = read("docker-compose.yaml");
+    let block = |service: &str| {
+        let start =
+            compose.find(&format!("\n  {service}:\n")).unwrap_or_else(|| panic!("{service}"));
+        // Up to the next line at the services' own indentation.
+        compose[start + 1..]
+            .lines()
+            .skip(1)
+            .take_while(|line| line.is_empty() || line.starts_with("    "))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let (service, worker) = (block("loans-service"), block("loans-worker"));
+    for (name, own) in [("loans-service", &service), ("loans-worker", &worker)] {
+        let settings: Vec<&str> = own
+            .lines()
+            .filter(|line| line.starts_with("      ") && !line.trim_start().starts_with('#'))
+            .map(str::trim)
+            .collect();
+        for local_only in [
+            "<<:",
+            "DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT:",
+            "WORKER_ALLOW_PLAINTEXT_DEVELOPMENT:",
+            "S3_URL:",
+            "S3_PUBLIC_URL:",
+            "APP_ENV:",
+            "COOKIE_SECURE:",
+            "HOSTED_DEMO:",
+        ] {
+            assert!(
+                !settings.iter().any(|line| line.starts_with(local_only)),
+                "{name} would put `{local_only}` into a release"
+            );
+        }
+    }
+    // The worker names the bucket and the API does not: that is what makes a
+    // release record both as users of the one store.
+    assert!(worker.contains("S3_BUCKET:") && !service.contains("S3_BUCKET:"));
+    let shared = read("compose.backend.env");
+    for setting in [
+        "DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT=true",
+        "S3_URL=http://object-store:9000",
+        "S3_BUCKET=",
+    ] {
+        assert!(shared.contains(setting), "compose.backend.env lost {setting}");
+    }
+    assert!(compose.contains("- ./compose.backend.env"));
+    // The module migrates once, in the worker's task.
+    assert!(
+        read("src/extraction/worker.rs").contains("api::persistence::database::migrate().await?")
+    );
+    assert!(read("src/api/persistence/repository.rs").contains("wait_for_schema"));
 }
 
 #[test]

@@ -213,5 +213,5 @@ sign-on, an audit-log screen, field encryption of staff email and name, backups
 Regenerate them with:
 
 ```sh
-docker compose run --rm --no-deps --entrypoint /app/bin/api -u "$(id -u)" -v "$PWD/sample-docs:/out" api gen-samples /out
+docker compose run --rm --no-deps --entrypoint /app/bin/api -u "$(id -u)" -v "$PWD/sample-docs:/out" loans-service gen-samples /out
 ```

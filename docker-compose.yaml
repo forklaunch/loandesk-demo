@@ -39,35 +39,13 @@ x-backend: &backend
   volumes:
     - ./scripts/demo-env.sh:/usr/local/bin/demo-env:ro
     - demo-secrets:/run/demo-secrets:ro
-
-x-backend-env: &backend-env
-  APP_ENV: ${APP_ENV:-development}
-  RUST_LOG: ${RUST_LOG:-info}
-  # One trusted tenant per deployment; not a secret.
-  TENANT_ID: ${TENANT_ID:-6f1d5a0e-58f4-4c58-9a51-0c2f6b1d7c11}
-  # Plaintext database connections are allowed only on this private Compose
-  # network. Refused when APP_ENV=production.
-  DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT: "true"
-  WORKER_ALLOW_PLAINTEXT_DEVELOPMENT: "true"
-  STORAGE_ENCRYPTION_NAMESPACE: loandesk-records
-  ENCRYPTION_KEY_ID: ${ENCRYPTION_KEY_ID:-demo-1}
-  ENCRYPTION_PREVIOUS_KEYS_JSON: ${ENCRYPTION_PREVIOUS_KEYS_JSON:-}
-  ENCRYPTION_LEGACY_KEY_HEX: disabled
-  S3_URL: http://object-store:9000
-  S3_BUCKET: loandesk-documents
-  S3_REGION: us-east-1
-  WORKER_QUEUE: extraction
-  WORKER_MAX_ATTEMPTS: "3"
-  WORKER_BACKOFF_SECONDS: "5"
-  # Access housekeeping. DEMO DEFAULTS, to be confirmed by the access-control
-  # owner (docs/data-classification.md): an account unused for 90 days is
-  # stale and is disabled by the worker's scheduled job; an access review is
-  # due every 90 days.
-  ACCESS_STALE_DAYS: ${ACCESS_STALE_DAYS:-90}
-  ACCESS_REVIEW_INTERVAL_DAYS: ${ACCESS_REVIEW_INTERVAL_DAYS:-90}
-  # Set to http://otel-collector:4318 together with `--profile observability`.
-  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${APP_ENV:-development}
+  # Settings both backend processes share on this machine. They are in a file,
+  # not in each service's `environment`, on purpose: the ForkLaunch CLI reads
+  # the `environment` of `loans-service` and `loans-worker` as the settings a
+  # deployment needs, and these local values (plaintext allowances, the MinIO
+  # address) must not travel into a release (docs/hosting.md).
+  env_file:
+    - ./compose.backend.env
 
 services:
   demo-secrets:
@@ -175,7 +153,6 @@ services:
     <<: *backend
     restart: "no"
     environment:
-      <<: *backend-env
       USE_MIGRATION_ROLE: "true"
       # Only needed once, when adopting a database written by the previous
       # backend: its base64 DATA_ENCRYPTION_KEY, to re-encrypt stored SSNs.
@@ -189,20 +166,21 @@ services:
     <<: *backend
     restart: "no"
     environment:
-      <<: *backend-env
       USE_MIGRATION_ROLE: "true"
     command: ["/app/bin/extraction", "--migrate"]
     depends_on:
       api-migrate:
         condition: service_completed_successfully
 
-  api:
+  # Named after the platform's components (module `loans`: `loans-service` and
+  # `loans-worker`), which is how the ForkLaunch CLI matches a Compose service
+  # to its project. The binaries are still `api` and `extraction`.
+  loans-service:
     <<: *backend
     restart: unless-stopped
     # Time to drain in-flight requests after SIGTERM before the container is killed.
     stop_grace_period: 40s
     environment:
-      <<: *backend-env
       HOST: 0.0.0.0
       PORT: "8000"
       PROTOCOL: http
@@ -211,11 +189,8 @@ services:
       # The origin browsers use. Requests from any other origin are refused.
       PUBLIC_ORIGIN: http://127.0.0.1:${WEB_PORT:-41080}
       CORS_ORIGINS: http://localhost:${WEB_PORT:-41080}
-      # Browsers reach the object store through the web container, same origin.
-      S3_PUBLIC_URL: /storage
       DATABASE_MAX_CONNECTIONS: "10"
       DATABASE_STATEMENT_TIMEOUT_MS: "10000"
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       # LOCAL DEMO ONLY: fictional users and applications on an empty database.
       # Refused when APP_ENV=production.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
@@ -243,13 +218,20 @@ services:
         limits: { cpus: "1.0", memory: 512M }
         reservations: { cpus: "0.25", memory: 128M }
 
-  extraction:
+  loans-worker:
     <<: *backend
     restart: unless-stopped
     # WORKER_DRAIN_MS (30 s) to finish in-flight jobs, plus margin.
     stop_grace_period: 40s
     environment:
-      <<: *backend-env
+      # The document bucket, repeated from compose.backend.env on purpose and
+      # on the worker only. The manifest declares the store on the API project,
+      # which makes `loans-service` its user; this entry is what makes a release
+      # record `loans-worker` as a user of the same store, so the platform
+      # gives both one bucket (docs/hosting.md). Declared on both services, the
+      # CLI folds the two into one entry that names only the first.
+      S3_BUCKET: loandesk-documents
+      S3_REGION: us-east-1
       WORKER_CONCURRENCY: "2"
       WORKER_BATCH_SIZE: "1"
       WORKER_POLL_MS: "500"
@@ -302,7 +284,7 @@ services:
       - "127.0.0.1:${WEB_PORT:-41080}:8080"
     depends_on:
       # Takes traffic only once the API reports ready.
-      api:
+      loans-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
