@@ -27,6 +27,19 @@ pub struct DependencyCheck {
     pub status: String,
 }
 
+/// What the front end needs to know about this deployment before sign-in.
+#[forklaunch_core::contract::schema]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSettingsResponse {
+    /// A public copy with fictional data: the front end shows the demo banner.
+    pub hosted_demo: bool,
+    /// Document files are sent to and read from the API, not object storage.
+    pub documents_through_api: bool,
+    /// Largest PDF accepted, in bytes.
+    #[field(min = 1, max = 9007199254740991)]
+    pub max_upload_bytes: i64,
+}
+
 #[forklaunch_core::contract::schema]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdPath {

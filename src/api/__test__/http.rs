@@ -37,7 +37,13 @@ fn every_endpoint_requires_sign_in_unless_it_is_explicitly_public() {
         .map(|route| route.path)
         .collect();
     public.sort();
-    assert_eq!(public, ["/api/auth/login", "/api/healthz", "/api/readyz", "/health"]);
+    // `/api/client-settings` tells the sign-in page whether to show the demo
+    // banner and how large an upload may be; it reads nothing and has no input.
+    assert_eq!(
+        public,
+        ["/api/auth/login", "/api/client-settings", "/api/healthz", "/api/readyz", "/health"]
+    );
+    assert!(success_schemas(&route("Get Client Settings")).contains("hosted_demo"));
     // Everything else is bound to the session policy: `Authenticated` (any
     // signed-in user) or `Protected` (signed in, with one of the listed roles).
     for route in routes().iter().filter(|route| route.access != AccessLevel::Public) {
@@ -89,6 +95,29 @@ fn role_rules_match_the_product() {
     // their own applications included. (The creator rule is enforced per record.)
     assert_eq!(allowed_roles(&route("Decide Application")), ["credit_officer"]);
     assert_eq!(allowed_roles(&route("Reveal Owner SSN")), lending);
+}
+
+#[test]
+fn the_one_hand_written_route_is_restricted_like_the_contract_routes() {
+    // The hosted demo's file upload is not a contract (its controller says
+    // why), so it is not in `routes()`. It calls the same session policy with
+    // this route description: relationship managers only, as for a grant.
+    let upload = api::api::controllers::documents::send_content_route();
+    assert_eq!(upload.path, "/api/documents/:id/content");
+    assert_eq!(allowed_roles(&upload), allowed_roles(&route("Request Document Upload")));
+    assert_eq!(allowed_roles(&upload), ["relationship_manager"]);
+    // Reading the file back is a contract route on the same path, for the
+    // people who may see the application; never admins.
+    let read = route("Read Document Content");
+    assert_eq!(read.path, upload.path);
+    assert_eq!(allowed_roles(&read), ["relationship_manager", "credit_officer"]);
+    // The handler source: policy first, then the expensive-operation limit,
+    // and only then the body.
+    let source = include_str!("../api/controllers/documents.rs");
+    let handler = source.split("pub async fn send_content(").nth(1).expect("send_content");
+    let position = |needle: &str| handler.find(needle).unwrap_or_else(|| panic!("{needle}"));
+    assert!(position(".authorize(") < position("limits.expensive.allow"));
+    assert!(position("limits.expensive.allow") < position("to_bytes("));
 }
 
 #[test]
@@ -403,6 +432,8 @@ fn public_and_expensive_endpoints_are_rate_limited() {
         .into_iter()
         .filter(|route| route.access == AccessLevel::Public && !route.path.contains("health"))
         .filter(|route| route.path != "/api/readyz")
+        // Three constants from the process's own settings: no work to limit.
+        .filter(|route| route.path != "/api/client-settings")
         .map(|route| route.path)
         .collect();
     assert_eq!(public, [LOGIN_PATH]);
@@ -415,7 +446,7 @@ fn public_and_expensive_endpoints_are_rate_limited() {
     // Anything that searches, exports, reveals, signs a grant or hashes a
     // password is on the list.
     for route in routes() {
-        let costly = ["search", "export", "reveal", "upload", "download", "password"]
+        let costly = ["search", "export", "reveal", "upload", "download", "password", "content"]
             .iter()
             .any(|word| route.path.contains(word));
         if costly {

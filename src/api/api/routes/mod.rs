@@ -5,7 +5,7 @@ pub mod documents;
 pub mod health;
 pub mod users;
 
-use crate::registrations::AppState;
+use crate::{api::controllers, registrations::AppState};
 use forklaunch_axum::native::Router;
 pub fn router() -> Result<Router<AppState>, String> {
     let router = forklaunch_axum::native::ContractRouter::new(contracts::registry());
@@ -15,5 +15,10 @@ pub fn router() -> Result<Router<AppState>, String> {
     let router = documents::mount(router)?;
     let router = health::mount(router)?;
     let router = users::mount(router)?;
-    router.finish()
+    // One route is not a contract: the hosted demo's file upload
+    // (`controllers::documents::send_content` says why).
+    Ok(router.finish()?.route(
+        controllers::documents::SEND_CONTENT_PATH,
+        axum::routing::put(controllers::documents::send_content),
+    ))
 }

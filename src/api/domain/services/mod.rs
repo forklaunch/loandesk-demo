@@ -7,6 +7,6 @@ mod users;
 pub use applications::ApplicationsService;
 pub use auth::AuthService;
 pub use browser_errors::BrowserErrors;
-pub use documents::DocumentsService;
+pub use documents::{DocumentsService, too_large};
 pub use health::{HealthService, version};
 pub use users::{MIN_PASSWORD_LEN, UsersService};

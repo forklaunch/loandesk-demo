@@ -60,6 +60,8 @@ pub async fn register(config: ServiceConfig) -> Result<AppState> {
             applications.clone(),
             store.clone(),
             queue.clone(),
+            settings.max_upload_bytes(),
+            settings.documents_through_api(),
         ),
         users: UsersService::new(db.clone(), settings.clone()),
         limits: Arc::new(RateLimits {

@@ -2,8 +2,8 @@ use crate::{
     api::{
         controllers::documents::{
             complete_upload,
-            contract::{Bindings, CompleteUpload, DownloadDocument, RequestUpload},
-            download_document, request_upload,
+            contract::{Bindings, CompleteUpload, DownloadDocument, ReadContent, RequestUpload},
+            download_document, read_content, request_upload,
         },
         policy::SessionCookiePolicy,
     },
@@ -18,6 +18,7 @@ pub fn mount(router: ContractRouter<AppState>) -> Result<ContractRouter<AppState
             SessionCookiePolicy,
             download_document,
         ),
+        read_content: ReadContent::bind_authorized(SessionCookiePolicy, read_content),
     }
     .mount(router)
 }
