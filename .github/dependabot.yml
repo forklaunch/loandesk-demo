@@ -3,13 +3,17 @@
 # This is an auto-generated file. Modifications are encouraged but may inhibit automated upgrades.
 # forklaunch-sha256: 5bf3890b2086c25f0929d5653ae8d1e97c567f5b7ed8e2ed68d943c221169fb5
 
+# Routine version bumps are off (limit 0): this is a demo repository and a
+# weekly batch of upgrade pull requests is noise here. Dependabot alerts stay
+# on, and the limit does not apply to security updates. Advisories are also
+# checked on every push by the audit jobs in .github/workflows/checks.yml.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
     groups:
@@ -21,7 +25,7 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
     groups:
@@ -33,7 +37,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
     groups:
@@ -45,6 +49,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"
