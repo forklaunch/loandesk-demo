@@ -40,7 +40,7 @@ description = "Client SDK for loandesk, containing shared foundational infrastru
 
 [[projects]]
 description = "LoanDesk REST API: applications, documents, decisions and user management"
-name = "api"
+name = "loans-service"
 routers = [
     "auth",
     "applications",
@@ -69,7 +69,7 @@ object_store = "s3"
 
 [[projects]]
 description = "Extracts key figures from uploaded loan documents"
-name = "extraction"
+name = "loans"
 routers = []
 type = "Worker"
 variant = "worker-postgres"
