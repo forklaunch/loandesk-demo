@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api } from "../api";
+import { BackIcon, ErrorMessage, Section } from "../ui";
 
 interface OwnerForm {
   full_name: string;
@@ -60,14 +61,18 @@ export default function NewApplication() {
 
   return (
     <form onSubmit={submit}>
+      <a href="#/" className="back">
+        <BackIcon /> All applications
+      </a>
       <div className="page-head">
-        <h1>New application</h1>
-        <a href="#/">Cancel</a>
+        <div>
+          <h1>New application</h1>
+          <p className="sub">Borrower details and owners now; documents are added on the next screen.</p>
+        </div>
       </div>
 
-      <section className="card">
-        <h2>Borrower</h2>
-        <div className="grid">
+      <Section title="Borrower and request">
+        <div className="card-body grid">
           <label>
             Legal name
             <input value={form.legal_name} onChange={set("legal_name")} required maxLength={200} />
@@ -86,65 +91,85 @@ export default function NewApplication() {
           </label>
           <label>
             Requested amount (USD)
-            <input value={form.requested_amount} onChange={set("requested_amount")} inputMode="numeric" placeholder="250000" required />
+            <input
+              value={form.requested_amount}
+              onChange={set("requested_amount")}
+              inputMode="numeric"
+              placeholder="250000"
+              required
+            />
           </label>
           <label className="wide">
             Purpose
             <textarea value={form.purpose} onChange={set("purpose")} rows={3} required maxLength={2000} />
           </label>
         </div>
-      </section>
+      </Section>
 
-      <section className="card">
-        <h2>Owners</h2>
-        {owners.map((o, i) => (
-          <div className="owner-row" key={i}>
-            <label>
-              Name
-              <input value={o.full_name} onChange={(e) => setOwner(i, "full_name", e.target.value)} required />
-            </label>
-            <label>
-              SSN
-              <input
-                value={o.ssn}
-                onChange={(e) => setOwner(i, "ssn", e.target.value)}
-                placeholder="123-45-6789"
-                autoComplete="off"
-                required
-              />
-            </label>
-            <label>
-              Date of birth
-              <input type="date" value={o.date_of_birth} onChange={(e) => setOwner(i, "date_of_birth", e.target.value)} required />
-            </label>
-            <label>
-              Ownership %
-              <input
-                type="number"
-                min="0.01"
-                max="100"
-                step="0.01"
-                value={o.ownership_percent}
-                onChange={(e) => setOwner(i, "ownership_percent", e.target.value)}
-                required
-              />
-            </label>
-            {owners.length > 1 && (
-              <button type="button" onClick={() => setOwners(owners.filter((_, j) => j !== i))}>
-                Remove
-              </button>
-            )}
-          </div>
-        ))}
-        <button type="button" onClick={() => setOwners([...owners, { ...emptyOwner }])}>
-          Add another owner
+      <Section
+        title="Owners"
+        foot="SSNs and dates of birth are stored encrypted; lists show only the last four digits."
+      >
+        <div className="card-body">
+          {owners.map((o, i) => (
+            <div className="owner-row" key={i}>
+              <label>
+                Name
+                <input value={o.full_name} onChange={(e) => setOwner(i, "full_name", e.target.value)} required />
+              </label>
+              <label>
+                SSN
+                <input
+                  value={o.ssn}
+                  onChange={(e) => setOwner(i, "ssn", e.target.value)}
+                  placeholder="123-45-6789"
+                  autoComplete="off"
+                  required
+                />
+              </label>
+              <label>
+                Date of birth
+                <input
+                  type="date"
+                  value={o.date_of_birth}
+                  onChange={(e) => setOwner(i, "date_of_birth", e.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                Ownership %
+                <input
+                  type="number"
+                  min="0.01"
+                  max="100"
+                  step="0.01"
+                  value={o.ownership_percent}
+                  onChange={(e) => setOwner(i, "ownership_percent", e.target.value)}
+                  required
+                />
+              </label>
+              {owners.length > 1 && (
+                <button type="button" onClick={() => setOwners(owners.filter((_, j) => j !== i))}>
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+          <button type="button" onClick={() => setOwners([...owners, { ...emptyOwner }])}>
+            Add another owner
+          </button>
+        </div>
+      </Section>
+
+      {error && <ErrorMessage>{error}</ErrorMessage>}
+      <div className="form-foot">
+        <a className="button" href="#/">
+          Cancel
+        </a>
+        <button className="primary" disabled={busy} aria-busy={busy}>
+          {busy ? "Saving…" : "Create application"}
         </button>
-      </section>
-
-      {error && <div className="error">{error}</div>}
-      <button className="primary" disabled={busy}>
-        {busy ? "Saving…" : "Create application"}
-      </button>
+      </div>
     </form>
   );
 }

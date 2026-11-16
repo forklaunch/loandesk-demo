@@ -5,6 +5,7 @@ import NewApplication from "./pages/NewApplication";
 import ApplicationView from "./pages/ApplicationView";
 import Users from "./pages/Users";
 import Security from "./pages/Security";
+import { ErrorMessage, InfoDot, Mark } from "./ui";
 
 // Tiny hash router: #/, #/new, #/applications/<id>, #/users, #/security
 function useRoute() {
@@ -40,32 +41,58 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
 
   return (
     <div className="login">
-      <form className="card" onSubmit={submit}>
-        <h1>LoanDesk</h1>
-        <p className="muted">Commercial lending workspace</p>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        <label>
-          Authenticator code <span className="muted">(only if two-factor sign-in is on)</span>
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            value={totp}
-            onChange={(e) => setTotp(e.target.value)}
-          />
-        </label>
-        {error && <div className="error">{error}</div>}
-        <button className="primary" disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      <div className="login-card">
+        <div className="login-brand">
+          <Mark size={42} />
+          <div>
+            <h1>LoanDesk</h1>
+            <div className="muted">Commercial lending workspace</div>
+          </div>
+        </div>
+        <p className="login-lede">
+          Loan applications, supporting documents and credit decisions for the commercial lending team.
+        </p>
+        <form onSubmit={submit}>
+          <label>
+            Email
+            <input
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              required
+            />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            <span>
+              Authenticator code <span className="hint">(only if two-factor sign-in is on)</span>
+            </span>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={totp}
+              onChange={(e) => setTotp(e.target.value)}
+            />
+          </label>
+          {error && <ErrorMessage>{error}</ErrorMessage>}
+          <button className="primary" disabled={busy} aria-busy={busy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+        <p className="login-foot">Authorised staff only. Sign-ins are recorded in the audit trail.</p>
+      </div>
     </div>
   );
 }
@@ -74,7 +101,8 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
 function DemoBanner() {
   return (
     <div className="demo-banner" role="note">
-      Demo. All data is fake. This copy resets periodically.
+      <InfoDot />
+      <span>Demo. All data is fake. This copy resets periodically.</span>
     </div>
   );
 }
@@ -120,30 +148,53 @@ export default function App() {
 
   const isAdmin = user.role === "admin";
   let page;
-  if (route[0] === "security") page = <Security user={user} onChange={setUser} />;
-  else if (isAdmin) page = <Users me={user} />;
-  else if (route[0] === "new" && user.role === "relationship_manager") page = <NewApplication />;
-  else if (route[0] === "applications" && route[1]) page = <ApplicationView key={route[1]} id={route[1]} />;
+  let narrow = false;
+  if (route[0] === "security") {
+    page = <Security user={user} onChange={setUser} />;
+    narrow = true;
+  } else if (isAdmin) page = <Users me={user} />;
+  else if (route[0] === "new" && user.role === "relationship_manager") {
+    page = <NewApplication />;
+    narrow = true;
+  } else if (route[0] === "applications" && route[1]) page = <ApplicationView key={route[1]} id={route[1]} />;
   else page = <ApplicationList user={user} />;
+  const onSecurity = route[0] === "security";
 
   return (
     <>
       {hostedDemo && <DemoBanner />}
-      <header className="topbar">
-        <a className="brand" href="#/">
-          LoanDesk
-        </a>
-        <nav>
-          {isAdmin ? <a href="#/users">Users</a> : <a href="#/">Applications</a>} <a href="#/security">Security</a>
-        </nav>
-        <div className="who">
-          <span>
-            {user.full_name} <span className="muted">· {ROLE_LABELS[user.role]}</span>
-          </span>
-          <button onClick={logout}>Sign out</button>
+      <header className="appbar">
+        <div className="appbar-inner">
+          <a className="brand" href="#/" aria-label="LoanDesk home">
+            <Mark />
+            <span>LoanDesk</span>
+          </a>
+          <nav className="appnav" aria-label="Primary">
+            {isAdmin ? (
+              <a href="#/users" aria-current={onSecurity ? undefined : "page"}>
+                Users
+              </a>
+            ) : (
+              <a href="#/" aria-current={onSecurity ? undefined : "page"}>
+                Applications
+              </a>
+            )}
+            <a href="#/security" aria-current={onSecurity ? "page" : undefined}>
+              Security
+            </a>
+          </nav>
+          <div className="who">
+            <div className="who-id">
+              <span className="who-name">{user.full_name}</span>
+              <span className="who-role">{ROLE_LABELS[user.role]}</span>
+            </div>
+            <button className="ghost" onClick={logout}>
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
-      <main>{page}</main>
+      <main className={narrow ? "narrow" : undefined}>{page}</main>
     </>
   );
 }

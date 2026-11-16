@@ -130,8 +130,8 @@
         "sha256": "4d3ceb9617bcf268f886a33a01c8d446f6263b19bc9fe71c75b9cd32c3418c88"
       },
       ".forklaunch/manifest.toml": {
-        "bytes": 2319,
-        "sha256": "416758e9e59301949fb23b7643bf73bb75159d832334087118228e11798149be"
+        "bytes": 2302,
+        "sha256": "ff5be9be57323d93d58ccff9d235db5106240220b31aa111ab17be497d4a485c"
       },
       "Cargo.lock": {
         "bytes": 131139,

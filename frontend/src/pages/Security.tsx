@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, User } from "../api";
+import { ErrorMessage, Notice, Section } from "../ui";
 
 /** Two-factor sign-in: enrol an authenticator app, then confirm with a code. */
 export default function Security({ user, onChange }: { user: User; onChange: (u: User) => void }) {
@@ -62,93 +63,105 @@ export default function Security({ user, onChange }: { user: User; onChange: (u:
   return (
     <>
       <div className="page-head">
-        <h1>Security</h1>
-      </div>
-      <section className="card">
-        <h2>Two-factor sign-in</h2>
-        {error && <div className="error">{error}</div>}
-        {user.mfa_enabled ? (
-          <p>
-            <span className="badge status-approved">On</span> You are asked for a code from your authenticator app
-            each time you sign in.
-          </p>
-        ) : secret ? (
-          <form onSubmit={confirm}>
-            <p>
-              Add this key to an authenticator app (or open{" "}
-              <a href={secret.otpauth_url}>this link</a> on the device that has one), then enter the 6-digit code it
-              shows.
-            </p>
-            <p>
-              <code>{secret.secret}</code>
-            </p>
-            <label>
-              Code
-              <input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                required
-              />
-            </label>
-            <button className="primary" disabled={busy}>
-              {busy ? "Checking…" : "Turn on"}
-            </button>
-          </form>
-        ) : (
-          <>
-            <p className="muted">
-              Off. With two-factor sign-in, a password alone is not enough to get into your account.
-            </p>
-            <button className="primary" onClick={start}>
-              Set up
-            </button>
-          </>
-        )}
-      </section>
-      <form className="card" onSubmit={changePassword}>
-        <h2>Password</h2>
-        {passwordError && <div className="error">{passwordError}</div>}
-        {passwordChanged && <p>Password changed. Every other session of yours has been signed out.</p>}
-        <div className="grid">
-          <label>
-            Current password
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={passwords.current_password}
-              onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
-              required
-            />
-          </label>
-          <label>
-            New password (12+ characters)
-            <input
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              value={passwords.new_password}
-              onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
-              required
-            />
-          </label>
-          <label>
-            New password again
-            <input
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              value={passwords.repeat}
-              onChange={(e) => setPasswords({ ...passwords, repeat: e.target.value })}
-              required
-            />
-          </label>
+        <div>
+          <h1>Security</h1>
+          <p className="sub">Two-factor sign-in and your password.</p>
         </div>
-        <button className="primary" disabled={busy}>
-          Change password
-        </button>
+      </div>
+      <Section
+        title="Two-factor sign-in"
+        aside={
+          user.mfa_enabled ? <span className="badge status-approved">On</span> : <span className="badge">Off</span>
+        }
+      >
+        <div className="card-body">
+          {error && <ErrorMessage>{error}</ErrorMessage>}
+          {user.mfa_enabled ? (
+            <p>You are asked for a code from your authenticator app each time you sign in.</p>
+          ) : secret ? (
+            <form className="stack" onSubmit={confirm}>
+              <p>
+                Add this key to an authenticator app (or open <a href={secret.otpauth_url}>this link</a> on the device
+                that has one), then enter the 6-digit code it shows.
+              </p>
+              <p>
+                <code>{secret.secret}</code>
+              </p>
+              <label>
+                Code
+                <input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+              </label>
+              <div className="actions">
+                <button className="primary" disabled={busy} aria-busy={busy}>
+                  {busy ? "Checking…" : "Turn on"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <p className="muted">
+                Off. With two-factor sign-in, a password alone is not enough to get into your account.
+              </p>
+              <button className="primary" onClick={start}>
+                Set up
+              </button>
+            </>
+          )}
+        </div>
+      </Section>
+      <form onSubmit={changePassword}>
+        <Section title="Password">
+          <div className="card-body">
+            {passwordError && <ErrorMessage>{passwordError}</ErrorMessage>}
+            {passwordChanged && <Notice>Password changed. Every other session of yours has been signed out.</Notice>}
+            <div className="grid three">
+              <label>
+                Current password
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwords.current_password}
+                  onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                New password (12+ characters)
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  value={passwords.new_password}
+                  onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                New password again
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  value={passwords.repeat}
+                  onChange={(e) => setPasswords({ ...passwords, repeat: e.target.value })}
+                  required
+                />
+              </label>
+            </div>
+            <div className="form-foot">
+              <button className="primary" disabled={busy} aria-busy={busy}>
+                Change password
+              </button>
+            </div>
+          </div>
+        </Section>
       </form>
     </>
   );
