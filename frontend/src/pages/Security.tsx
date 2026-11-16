@@ -7,6 +7,32 @@ export default function Security({ user, onChange }: { user: User; onChange: (u:
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [passwords, setPasswords] = useState({ current_password: "", new_password: "", repeat: "" });
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordChanged, setPasswordChanged] = useState(false);
+
+  async function changePassword(e: FormEvent) {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordChanged(false);
+    if (passwords.new_password !== passwords.repeat) {
+      setPasswordError("The two new passwords do not match");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api("POST", "/auth/password", {
+        current_password: passwords.current_password,
+        new_password: passwords.new_password,
+      });
+      setPasswords({ current_password: "", new_password: "", repeat: "" });
+      setPasswordChanged(true);
+    } catch (err) {
+      setPasswordError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function start() {
     setError("");
@@ -82,6 +108,48 @@ export default function Security({ user, onChange }: { user: User; onChange: (u:
           </>
         )}
       </section>
+      <form className="card" onSubmit={changePassword}>
+        <h2>Password</h2>
+        {passwordError && <div className="error">{passwordError}</div>}
+        {passwordChanged && <p>Password changed. Every other session of yours has been signed out.</p>}
+        <div className="grid">
+          <label>
+            Current password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={passwords.current_password}
+              onChange={(e) => setPasswords({ ...passwords, current_password: e.target.value })}
+              required
+            />
+          </label>
+          <label>
+            New password (12+ characters)
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              value={passwords.new_password}
+              onChange={(e) => setPasswords({ ...passwords, new_password: e.target.value })}
+              required
+            />
+          </label>
+          <label>
+            New password again
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              value={passwords.repeat}
+              onChange={(e) => setPasswords({ ...passwords, repeat: e.target.value })}
+              required
+            />
+          </label>
+        </div>
+        <button className="primary" disabled={busy}>
+          Change password
+        </button>
+      </form>
     </>
   );
 }

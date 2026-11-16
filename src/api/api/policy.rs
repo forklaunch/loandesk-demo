@@ -4,9 +4,13 @@
 //! deleted session, a changed role or a removed user takes effect on the very
 //! next call. Role restrictions are declared on the route contract
 //! (`allowed_roles`) and enforced here, in one place, before the body is parsed.
-//! Rejected sessions and denied permissions are logged as named events.
+//! Rejected sessions, denied permissions and rate-limit refusals are logged as
+//! named events (`invalid_session`, `permission_denied`, `rate_limited`).
 use crate::{
-    api::transport, domain::schemas::auth::SessionUser, error::AppError, registrations::AppState,
+    api::{rate_limit::EXPENSIVE_OPERATIONS, transport},
+    domain::schemas::auth::SessionUser,
+    error::AppError,
+    registrations::AppState,
 };
 use axum::http::{HeaderMap, header, request::Parts};
 use forklaunch_axum::native::{EndpointError, EndpointPolicy, PolicyCapabilities, RouteContract};
@@ -104,6 +108,31 @@ impl EndpointPolicy<AppState> for SessionCookiePolicy {
             Err(error) => return Err(error.into_endpoint()),
         };
         transport::set_user(user.id);
+
+        // Per-user limits, before any work is done for the request.
+        let caller = user.id.to_string();
+        let expensive = EXPENSIVE_OPERATIONS.contains(&route.name.as_str());
+        let refused = if !state.limits.requests.allow(&caller) {
+            Some("requests")
+        } else if expensive && !state.limits.expensive.allow(&caller) {
+            Some("expensive")
+        } else {
+            None
+        };
+        if let Some(limit) = refused {
+            tracing::warn!(
+                event = "rate_limited",
+                limit,
+                user_id = %user.id,
+                operation = %route.operation_name,
+                request_id = %transport::request_id(),
+                "request refused: rate limit reached"
+            );
+            return Err(AppError::TooManyRequests(
+                "Too many requests. Wait a moment and try again.".into(),
+            )
+            .into_endpoint());
+        }
 
         let allowed = route.rbac.as_ref().map(|rbac| rbac.allowed_roles.as_slice()).unwrap_or(&[]);
         if !allowed.is_empty() && !allowed.contains(&user.role) {

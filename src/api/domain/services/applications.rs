@@ -242,10 +242,13 @@ impl ApplicationsService {
             .filter(|q| !q.is_empty() && q.chars().all(|c| c.is_ascii_digit()))
             .map(|q| format!("%{q}%"));
         // Purpose and owner names are encrypted; they are matched through keyed word tokens.
-        let tokens = match q {
-            Some(q) => self.db.query_tokens(q)?,
-            None => None,
+        // While a key rotation is in progress, rows not yet re-indexed still
+        // carry tokens under the previous key: either set matches.
+        let (tokens, previous_tokens) = match q {
+            Some(q) => self.db.query_tokens(q)?.map(|t| (t.active, t.previous)).unzip(),
+            None => (None, None),
         };
+        let previous_tokens = previous_tokens.flatten();
         let limit = limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
         let (after_at, after_id) = cursor.map(|cursor| decode_cursor(&cursor)).transpose()?.unzip();
 
@@ -261,7 +264,8 @@ impl ApplicationsService {
                    OR a.industry ILIKE $2 ESCAPE '\'
                    OR a.status ILIKE $2 ESCAPE '\'
                    OR rm.full_name ILIKE $2 ESCAPE '\'
-                   OR ($4::text[] IS NOT NULL AND a.search_tokens @> $4))
+                   OR ($4::text[] IS NOT NULL AND a.search_tokens @> $4)
+                   OR ($8::text[] IS NOT NULL AND a.search_tokens @> $8))
               AND ($5::timestamptz IS NULL OR (a.created_at, a.id) < ($5, $6))
             ORDER BY a.created_at DESC, a.id DESC
             LIMIT $7"
@@ -273,6 +277,7 @@ impl ApplicationsService {
         .bind(after_at)
         .bind(after_id)
         .bind(limit + 1)
+        .bind(previous_tokens)
         .fetch_all(&mut *tx)
         .await
         .map_err(storage("list applications"))?;
@@ -688,6 +693,15 @@ impl ApplicationsService {
         self.db.audit(&mut tx, Some(user.id), "ssn_revealed", Some(owner_id), None).await?;
         disclosures.persist(&mut tx, user.id).await?;
         tx.commit().await.map_err(storage("record ssn reveal"))?;
+        // Also a named log event, so an unusual number of reveals can alert.
+        tracing::info!(
+            event = "ssn_revealed",
+            user_id = %user.id,
+            application = %id,
+            owner = %owner_id,
+            request_id = %transport::request_id(),
+            "full SSN revealed to an authorised user"
+        );
         if ssn.len() != 9 {
             return Err(AppError::Storage("stored ssn has an unexpected shape".into()));
         }
@@ -708,6 +722,13 @@ impl ApplicationsService {
         self.db.audit(&mut tx, Some(user.id), "application_exported", Some(id), None).await?;
         disclosures.persist(&mut tx, user.id).await?;
         tx.commit().await.map_err(storage("record export"))?;
+        tracing::info!(
+            event = "application_exported",
+            user_id = %user.id,
+            application = %id,
+            request_id = %transport::request_id(),
+            "application exported"
+        );
         Ok(ApplicationExport { exported_at: wire_time(Utc::now()), application, owners, documents })
     }
 }

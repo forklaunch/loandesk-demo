@@ -23,7 +23,7 @@ pub struct Document {
 
 /// Step 1 of an upload: describe the file. The API answers with a short-lived
 /// grant to send the bytes straight to object storage.
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewDocument {
     #[field(max_length = 40)]

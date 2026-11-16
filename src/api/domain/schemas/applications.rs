@@ -43,7 +43,7 @@ pub struct Application {
 
 /// Search text travels in the request body, never in the URL: it is often an
 /// EIN or a person's name.
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRequest {
     #[field(max_length = 100)]
@@ -54,7 +54,7 @@ pub struct SearchRequest {
     pub cursor: forklaunch_core::contract::schema::Optional<String>,
 }
 
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Clone)]
 pub struct NewOwner {
     #[field(max_length = 400)]
@@ -66,7 +66,7 @@ pub struct NewOwner {
     pub ownership_percent: f64,
 }
 
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Clone)]
 pub struct NewApplication {
     #[field(max_length = 400)]
@@ -81,6 +81,9 @@ pub struct NewApplication {
     pub requested_amount: i64,
     #[field(max_length = 4000)]
     pub purpose: String,
+    /// Between 1 and 20 owners. The schema macro has no item-count option for
+    /// arrays, so the count is enforced in `ApplicationsService::create`
+    /// (`MAX_OWNERS`), after the framework's 2 MiB body limit.
     pub owners: Vec<NewOwner>,
 }
 
@@ -128,7 +131,7 @@ pub struct ApplicationDetail {
     pub permissions: Permissions,
 }
 
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Clone)]
 pub struct Decision {
     #[field(max_length = 20)]

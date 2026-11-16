@@ -5,6 +5,46 @@ import type {
   ForkLaunchHeaders,
 } from '@forklaunch/universal-sdk';
 
+export type AccessReview = {
+  generated_at: Date;
+  last_review_at?: Date | null;
+  last_review_by?: string | null;
+  review_interval_days: number;
+  review_overdue: boolean;
+  stale_accounts: number;
+  stale_after_days: number;
+  truncated: boolean;
+  users: Array<AccessReviewEntry>
+};
+
+export type AccessReviewEntry = {
+  created_at: Date;
+  days_since_last_use: number;
+  disabled_at?: Date | null;
+  disabled_reason?: string | null;
+  email: string;
+  full_name: string;
+  id: string;
+  last_login_at?: Date | null;
+  mfa_enabled: boolean;
+  open_sessions: number;
+  password_changed_at?: Date | null;
+  role: string;
+  stale: boolean;
+  status: string
+};
+
+export type AccessReviewRecorded = {
+  accounts: number;
+  disabled_accounts: number;
+  reviewed_at: Date;
+  stale_accounts: number
+};
+
+export type AccessReviewUsersItem = AccessReviewEntry;
+
+export type ApiApiAccessReviewResponseUsersItem = AccessReviewUsersItem;
+
 export type ApiApiCreateApplicationBodyOwnersItem = NewApplicationOwnersItem;
 
 export type ApiApiExportApplicationResponseApplication = ApplicationExportApplication;
@@ -32,6 +72,8 @@ export type ApiApiGetReadinessResponseChecksItem = HealthResponseChecksItem;
 export type ApiApiListApplicationsResponseItem = Application;
 
 export type ApiApiListApplicationsResponseItemRisk = Risk;
+
+export type ApiApiListAuditLogResponseItem = AuditEntry;
 
 export type ApiApiListUsersResponseItem = User;
 
@@ -95,12 +137,27 @@ export type ApplicationExportDocumentsItem = Document;
 
 export type ApplicationExportOwnersItem = Owner;
 
+export type AuditEntry = {
+  action: string;
+  at: Date;
+  detail?: string | null;
+  entity_id?: string | null;
+  id: number;
+  request_id?: string | null;
+  user_id?: string | null
+};
+
 export type BrowserErrorReport = {
   class: string;
   kind: string;
   release: string;
   screen: string;
   stack: string
+};
+
+export type ChangePassword = {
+  current_password: string;
+  new_password: string
 };
 
 export type Created = {
@@ -262,9 +319,11 @@ export type UploadGrant = {
 
 export type User = {
   created_at: Date;
+  disabled_at?: Date | null;
   email: string;
   full_name: string;
   id: string;
+  last_login_at?: Date | null;
   role: string
 };
 
@@ -540,6 +599,27 @@ export type ConfirmTwoFactorEnrolmentResponse =
     >
   | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
 
+export type ChangePasswordRequest = ForkLaunchSdkRequest<
+  never,
+  never,
+  ChangePassword,
+  ForkLaunchHeaders
+>;
+
+export type ChangePasswordResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: Ok;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
 export type ReportBrowserErrorRequest = ForkLaunchSdkRequest<
   never,
   never,
@@ -743,6 +823,121 @@ export type SetUserRoleResponse =
     >
   | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
 
+export type DisableUserRequest = ForkLaunchSdkRequest<
+  {
+    "id": string
+  },
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type DisableUserResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: User;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
+export type EnableUserRequest = ForkLaunchSdkRequest<
+  {
+    "id": string
+  },
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type EnableUserResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: User;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
+export type AccessReviewRequest = ForkLaunchSdkRequest<
+  never,
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type AccessReviewResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: AccessReview;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
+export type RecordAccessReviewRequest = ForkLaunchSdkRequest<
+  never,
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type RecordAccessReviewResponse =
+  | {
+      code: 201;
+      status: 201;
+      contentType: 'application/json';
+      response: AccessReviewRecorded;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 201 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
+export type ListAuditLogRequest = ForkLaunchSdkRequest<
+  never,
+  {
+    "limit"?: number;
+    "cursor"?: string
+  },
+  never,
+  ForkLaunchHeaders
+>;
+
+export type ListAuditLogResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: Array<AuditEntry>;
+      headers: {
+        'x-next-cursor'?: string | null
+      };
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
 export type GetHealthRequest = ForkLaunchSdkRequest<
   never,
   never,
@@ -778,6 +973,7 @@ export type ApiSdkClient = {
     currentUser: (input?: CurrentUserRequest) => Promise<CurrentUserResponse>;
     startTwoFactorEnrolment: (input?: StartTwoFactorEnrolmentRequest) => Promise<StartTwoFactorEnrolmentResponse>;
     confirmTwoFactorEnrolment: (input: ConfirmTwoFactorEnrolmentRequest) => Promise<ConfirmTwoFactorEnrolmentResponse>;
+    changePassword: (input: ChangePasswordRequest) => Promise<ChangePasswordResponse>;
     reportBrowserError: (input: ReportBrowserErrorRequest) => Promise<ReportBrowserErrorResponse>;
     requestDocumentUpload: (input: RequestDocumentUploadRequest) => Promise<RequestDocumentUploadResponse>;
     completeDocumentUpload: (input: CompleteDocumentUploadRequest) => Promise<CompleteDocumentUploadResponse>;
@@ -787,6 +983,11 @@ export type ApiSdkClient = {
     listUsers: (input: ListUsersRequest) => Promise<ListUsersResponse>;
     createUser: (input: CreateUserRequest) => Promise<CreateUserResponse>;
     setUserRole: (input: SetUserRoleRequest) => Promise<SetUserRoleResponse>;
+    disableUser: (input: DisableUserRequest) => Promise<DisableUserResponse>;
+    enableUser: (input: EnableUserRequest) => Promise<EnableUserResponse>;
+    accessReview: (input?: AccessReviewRequest) => Promise<AccessReviewResponse>;
+    recordAccessReview: (input?: RecordAccessReviewRequest) => Promise<RecordAccessReviewResponse>;
+    listAuditLog: (input: ListAuditLogRequest) => Promise<ListAuditLogResponse>;
   };
   health: {
     getHealth: (input?: GetHealthRequest) => Promise<GetHealthResponse>;

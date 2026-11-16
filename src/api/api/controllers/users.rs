@@ -3,7 +3,7 @@ use crate::{
     api::policy::CurrentUser,
     domain::schemas::{
         IdPath, PageHeaders, PageQuery,
-        users::{NewUser, SetRole, User},
+        users::{AccessReview, AccessReviewRecorded, AuditEntry, NewUser, SetRole, User},
     },
     error::AppError,
     registrations::AppState,
@@ -38,12 +38,52 @@ pub async fn set_role(
         .await
         .map_err(AppError::into_endpoint)
 }
+pub async fn list_audit_log(
+    State(state): State<AppState>,
+    _admin: CurrentUser,
+    request: RequestFields<(), PageQuery, NoFields, NoFields>,
+) -> Result<ResponseWithHeaders<Vec<AuditEntry>, PageHeaders>, EndpointError> {
+    let (body, next_cursor) =
+        state.users.audit_log(request.query).await.map_err(AppError::into_endpoint)?;
+    Ok(ResponseWithHeaders { body, headers: PageHeaders { next_cursor } })
+}
+pub async fn disable_user(
+    State(state): State<AppState>,
+    admin: CurrentUser,
+    request: RequestFields<(), NoFields, NoFields, IdPath>,
+) -> Result<User, EndpointError> {
+    state.users.set_disabled(&admin, &request.path.id, true).await.map_err(AppError::into_endpoint)
+}
+pub async fn enable_user(
+    State(state): State<AppState>,
+    admin: CurrentUser,
+    request: RequestFields<(), NoFields, NoFields, IdPath>,
+) -> Result<User, EndpointError> {
+    state.users.set_disabled(&admin, &request.path.id, false).await.map_err(AppError::into_endpoint)
+}
+pub async fn access_review(
+    State(state): State<AppState>,
+    _admin: CurrentUser,
+    (): (),
+) -> Result<AccessReview, EndpointError> {
+    state.users.access_review().await.map_err(AppError::into_endpoint)
+}
+pub async fn record_access_review(
+    State(state): State<AppState>,
+    admin: CurrentUser,
+    (): (),
+) -> Result<AccessReviewRecorded, EndpointError> {
+    state.users.record_access_review(&admin).await.map_err(AppError::into_endpoint)
+}
 
 #[forklaunch_core::contract::api]
 pub mod contract {
     use crate::domain::schemas::{
         IdPath, PageHeaders, PageQuery,
-        users::{NewUser, SetRole as SetRoleBody, User},
+        users::{
+            AccessReview as AccessReviewBody, AccessReviewRecorded, AuditEntry, NewUser,
+            SetRole as SetRoleBody, User,
+        },
     };
     use forklaunch_core::contract::{
         HttpMethod, RbacConfig,
@@ -98,5 +138,75 @@ pub mod contract {
             )
             .expect("valid set role endpoint"),
         )
+    }
+    #[access(Protected)]
+    pub fn disable_user() -> Endpoint<Fields<NoBody, NoFields, NoFields, IdPath>, JsonBody<User>> {
+        admins_only(
+            Endpoint::new(
+                "Disable User",
+                "Disable another user's account and end its sessions",
+                HttpMethod::Post,
+                "/api/users/:id/disable",
+                200,
+            )
+            .expect("valid disable user endpoint"),
+        )
+    }
+    #[access(Protected)]
+    pub fn enable_user() -> Endpoint<Fields<NoBody, NoFields, NoFields, IdPath>, JsonBody<User>> {
+        admins_only(
+            Endpoint::new(
+                "Enable User",
+                "Re-enable a disabled account",
+                HttpMethod::Post,
+                "/api/users/:id/enable",
+                200,
+            )
+            .expect("valid enable user endpoint"),
+        )
+    }
+    #[access(Protected)]
+    pub fn access_review() -> Endpoint<NoBody, JsonBody<AccessReviewBody>> {
+        admins_only(
+            Endpoint::new(
+                "Access Review",
+                "Every account with role, second factor, last sign-in and staleness, for the periodic access review",
+                HttpMethod::Get,
+                "/api/access-review",
+                200,
+            )
+            .expect("valid access review endpoint"),
+        )
+    }
+    #[access(Protected)]
+    pub fn record_access_review() -> Endpoint<NoBody, JsonBody<AccessReviewRecorded>> {
+        admins_only(
+            Endpoint::new(
+                "Record Access Review",
+                "Record in the audit trail that the caller reviewed the accounts as they are now",
+                HttpMethod::Post,
+                "/api/access-review",
+                201,
+            )
+            .expect("valid record access review endpoint"),
+        )
+    }
+    #[access(Protected)]
+    pub fn list_audit_log() -> Endpoint<
+        Fields<NoBody, PageQuery, NoFields, NoFields>,
+        WithResponseHeaders<JsonBody<Vec<AuditEntry>>, PageHeaders>,
+    > {
+        admins_only(
+            Endpoint::new(
+                "List Audit Log",
+                "One page of the append-only audit trail, newest first; x-next-cursor continues",
+                HttpMethod::Get,
+                "/api/audit-log",
+                200,
+            )
+            .expect("valid audit log endpoint"),
+        )
+        .with_typed_response_headers::<PageHeaders>()
+        .expect("valid page headers")
     }
 }

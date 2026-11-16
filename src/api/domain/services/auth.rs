@@ -7,7 +7,8 @@ use crate::{
     config::Settings,
     domain::{
         crypto,
-        schemas::auth::{LoginRequest, MfaEnrolment, Ok as OkBody, SessionUser},
+        schemas::auth::{ChangePassword, LoginRequest, MfaEnrolment, Ok as OkBody, SessionUser},
+        services::MIN_PASSWORD_LEN,
         totp,
     },
     error::{AppError, Result, bad, storage},
@@ -80,7 +81,7 @@ impl AuthService {
             "SELECT u.id, u.email, u.full_name, u.role,
                     EXISTS (SELECT 1 FROM user_mfa m WHERE m.user_id = u.id AND m.confirmed_at IS NOT NULL) AS mfa_enabled
              FROM sessions s JOIN users u ON u.id = s.user_id
-             WHERE s.token_hash = $1 AND s.expires_at > now()",
+             WHERE s.token_hash = $1 AND s.expires_at > now() AND u.disabled_at IS NULL",
         )
         .bind(&hash)
         .fetch_optional(&mut *tx)
@@ -108,7 +109,7 @@ impl AuthService {
         }
         let mut tx = self.db.tx().await?;
         let found = sqlx::query(
-            "SELECT u.id, u.full_name, u.role, u.password_hash, u.locked_until,
+            "SELECT u.id, u.full_name, u.role, u.password_hash, u.locked_until, u.disabled_at,
                     (SELECT m.secret_ciphertext FROM user_mfa m
                       WHERE m.user_id = u.id AND m.confirmed_at IS NOT NULL) AS mfa_secret
              FROM users u WHERE u.email = $1 FOR UPDATE",
@@ -144,6 +145,26 @@ impl AuthService {
         let mut ok = tokio::task::spawn_blocking(move || crypto::verify_password(&password, &hash))
             .await
             .map_err(storage("verify password"))?;
+
+        // A disabled account is refused with the same answer as a wrong
+        // password, after the same work, so the response does not say which
+        // accounts exist or are disabled. The reason is in the log and the
+        // audit trail.
+        let disabled = found
+            .as_ref()
+            .is_some_and(|row| row.get::<Option<DateTime<Utc>>, _>("disabled_at").is_some());
+        if ok && disabled {
+            let id: Uuid = found.as_ref().expect("a disabled account was found").get("id");
+            self.db.audit(&mut tx, Some(id), "login_refused_disabled", None, None).await?;
+            tx.commit().await.map_err(storage("record refused sign-in"))?;
+            tracing::warn!(
+                event = "login_refused_disabled",
+                user_id = %id,
+                request_id = %transport::request_id(),
+                "sign-in refused: the account is disabled"
+            );
+            return Err(AppError::Unauthorized(INVALID_LOGIN.into()));
+        }
 
         let disclosures = Disclosures::new();
         let mut mfa_enabled = false;
@@ -196,7 +217,9 @@ impl AuthService {
         };
 
         let user_id: Uuid = row.get("id");
-        sqlx::query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1")
+        sqlx::query(
+            "UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1",
+        )
             .bind(user_id)
             .execute(&mut *tx)
             .await
@@ -242,6 +265,87 @@ impl AuthService {
         self.db.audit(&mut tx, Some(user.id), "logout", None, None).await?;
         tx.commit().await.map_err(storage("end session"))?;
         transport::set_cookie(self.cookie("", 0));
+        Ok(OkBody { ok: true })
+    }
+
+    /// Changes the caller's own password. Every session of the user ends,
+    /// this one included, and the caller gets a fresh one: a session opened
+    /// with the old password, anywhere, stops working at once.
+    pub async fn change_password(
+        &self,
+        user: &CurrentUser,
+        body: ChangePassword,
+    ) -> Result<OkBody> {
+        if body.new_password.chars().count() < MIN_PASSWORD_LEN || body.new_password.len() > 1024 {
+            return Err(bad(format!("Password must be at least {MIN_PASSWORD_LEN} characters")));
+        }
+        if body.new_password == body.current_password {
+            return Err(bad("The new password must be different from the current one"));
+        }
+        let mut tx = self.db.tx().await?;
+        let stored: String =
+            sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1 FOR UPDATE")
+                .bind(user.id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(storage("load user"))?;
+        let (current, new) = (body.current_password, body.new_password);
+        let (matches, new_hash) = tokio::task::spawn_blocking(move || {
+            (crypto::verify_password(&current, &stored), crypto::hash_password(&new))
+        })
+        .await
+        .map_err(storage("verify password"))?;
+        if !matches {
+            self.db
+                .audit(&mut tx, Some(user.id), "password_change_refused", Some(user.id), None)
+                .await?;
+            tx.commit().await.map_err(storage("record refused password change"))?;
+            tracing::warn!(
+                event = "password_change_refused",
+                user_id = %user.id,
+                request_id = %transport::request_id(),
+                "password change refused: the current password was wrong"
+            );
+            return Err(bad("The current password is not correct"));
+        }
+        let new_hash = new_hash.map_err(storage("hash password"))?;
+        sqlx::query(
+            "UPDATE users SET password_hash = $2, password_changed_at = now(), failed_logins = 0,
+                    locked_until = NULL
+             WHERE id = $1",
+        )
+        .bind(user.id)
+        .bind(new_hash)
+        .execute(&mut *tx)
+        .await
+        .map_err(storage("change password"))?;
+        let ended = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+            .bind(user.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage("end sessions"))?
+            .rows_affected();
+        let token = crypto::new_session_token();
+        sqlx::query(
+            "INSERT INTO sessions (token_hash, user_id, expires_at)
+             VALUES ($1, $2, now() + make_interval(hours => $3))",
+        )
+        .bind(crypto::sha256_hex(&token))
+        .bind(user.id)
+        .bind(self.settings.session_hours)
+        .execute(&mut *tx)
+        .await
+        .map_err(storage("create session"))?;
+        self.db.audit(&mut tx, Some(user.id), "password_changed", Some(user.id), None).await?;
+        tx.commit().await.map_err(storage("change password"))?;
+        transport::set_cookie(self.cookie(&token, i64::from(self.settings.session_hours) * 3600));
+        tracing::info!(
+            event = "password_changed",
+            user_id = %user.id,
+            sessions_ended = ended,
+            request_id = %transport::request_id(),
+            "password changed; every earlier session ended"
+        );
         Ok(OkBody { ok: true })
     }
 

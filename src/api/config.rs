@@ -141,6 +141,22 @@ pub struct Settings {
     /// Set by the local Compose stack, whose secrets are generated on first
     /// start. Never valid in production.
     pub demo_secrets: bool,
+    /// Sign-in attempts per client address per minute.
+    pub rate_limit_login_per_minute: u32,
+    /// Signed-in requests per user per minute.
+    pub rate_limit_requests_per_minute: u32,
+    /// Expensive operations (`rate_limit::EXPENSIVE_OPERATIONS`) per user per minute.
+    pub rate_limit_expensive_per_minute: u32,
+    /// An account unused for this many days is stale: flagged in the access
+    /// review and disabled by the scheduled job. Default 90, to be confirmed
+    /// by the access-control owner (docs/controls.md).
+    pub access_stale_days: i64,
+    /// An access review is overdue when none was recorded in this many days.
+    /// Default 90, to be confirmed.
+    pub access_review_interval_days: i64,
+    /// `S3_URL`: set only for an S3-compatible store; AWS S3 is reached over
+    /// HTTPS by the SDK's own endpoints.
+    pub object_store_url: Option<String>,
 }
 
 fn flag(name: &str) -> Result<Option<bool>> {
@@ -162,6 +178,17 @@ impl Settings {
             seed_demo: flag("SEED_DEMO_DATA")?.unwrap_or(false),
             mfa_required_for_admins: flag("MFA_REQUIRED_FOR_ADMINS")?.unwrap_or(production),
             demo_secrets: flag("DEMO_SECRETS")?.unwrap_or(false),
+            rate_limit_login_per_minute: config::optional("RATE_LIMIT_LOGIN_PER_MINUTE")?
+                .unwrap_or(60),
+            rate_limit_requests_per_minute: config::optional("RATE_LIMIT_REQUESTS_PER_MINUTE")?
+                .unwrap_or(600),
+            rate_limit_expensive_per_minute: config::optional("RATE_LIMIT_EXPENSIVE_PER_MINUTE")?
+                .unwrap_or(60),
+            access_stale_days: config::optional("ACCESS_STALE_DAYS")?.unwrap_or(90),
+            access_review_interval_days: config::optional("ACCESS_REVIEW_INTERVAL_DAYS")?
+                .unwrap_or(90),
+            object_store_url: config::optional::<String>("S3_URL")?
+                .filter(|url| !url.trim().is_empty()),
         })
     }
 
@@ -170,6 +197,26 @@ impl Settings {
     pub fn validate(&self, service: &ServiceConfig, plaintext_database: bool) -> Result<()> {
         if !(1..=24).contains(&self.session_hours) {
             return Err(AppError::InvalidConfig("SESSION_HOURS must be between 1 and 24".into()));
+        }
+        // A limit of zero would lock everyone out; there is no way to turn a limit off.
+        for (name, limit) in [
+            ("RATE_LIMIT_LOGIN_PER_MINUTE", self.rate_limit_login_per_minute),
+            ("RATE_LIMIT_REQUESTS_PER_MINUTE", self.rate_limit_requests_per_minute),
+            ("RATE_LIMIT_EXPENSIVE_PER_MINUTE", self.rate_limit_expensive_per_minute),
+        ] {
+            if !(1..=100_000).contains(&limit) {
+                return Err(AppError::InvalidConfig(format!(
+                    "{name} must be between 1 and 100000"
+                )));
+            }
+        }
+        for (name, days) in [
+            ("ACCESS_STALE_DAYS", self.access_stale_days),
+            ("ACCESS_REVIEW_INTERVAL_DAYS", self.access_review_interval_days),
+        ] {
+            if !(1..=3650).contains(&days) {
+                return Err(AppError::InvalidConfig(format!("{name} must be between 1 and 3650")));
+            }
         }
         if !self.production {
             return Ok(());
@@ -194,7 +241,16 @@ impl Settings {
         if !service.origin().starts_with("https://") {
             return refuse("PUBLIC_ORIGIN must be an https:// origin");
         }
+        if self.object_store_url.as_ref().is_some_and(|url| !url.starts_with("https://")) {
+            return refuse("S3_URL must be an https:// endpoint (documents are personal data)");
+        }
         Ok(())
+    }
+
+    /// The OpenAPI document and its browser UI describe every route. They are
+    /// a development aid: served everywhere except production.
+    pub const fn serves_api_docs(&self) -> bool {
+        !self.production
     }
 }
 
@@ -210,6 +266,23 @@ mod tests {
             seed_demo: false,
             mfa_required_for_admins: true,
             demo_secrets: false,
+            ..limits()
+        }
+    }
+    fn limits() -> Settings {
+        Settings {
+            production: false,
+            cookie_secure: false,
+            session_hours: 8,
+            seed_demo: false,
+            mfa_required_for_admins: false,
+            demo_secrets: false,
+            rate_limit_login_per_minute: 60,
+            rate_limit_requests_per_minute: 600,
+            rate_limit_expensive_per_minute: 60,
+            access_stale_days: 90,
+            access_review_interval_days: 90,
+            object_store_url: None,
         }
     }
     fn https() -> ServiceConfig {
@@ -232,6 +305,30 @@ mod tests {
     }
 
     #[test]
+    fn calls_to_other_services_use_https_in_production() {
+        // The browser origin, the database (verified TLS) and the object store.
+        let store = |url: &str| Settings { object_store_url: Some(url.into()), ..production() };
+        assert!(store("https://objects.internal.example").validate(&https(), false).is_ok());
+        assert!(store("http://object-store:9000").validate(&https(), false).is_err());
+        assert!(production().validate(&https(), false).is_ok(), "AWS S3: the SDK's HTTPS endpoint");
+        assert!(production().validate(&https(), true).is_err(), "plaintext database connection");
+        assert!(production().validate(&ServiceConfig::default(), false).is_err(), "http origin");
+        // The local stack talks to its own containers over the Compose network.
+        let demo =
+            Settings { object_store_url: Some("http://object-store:9000".into()), ..limits() };
+        assert!(demo.validate(&ServiceConfig::default(), true).is_ok());
+    }
+
+    #[test]
+    fn debug_modes_and_development_tools_are_off_in_production() {
+        assert!(!production().serves_api_docs(), "no OpenAPI UI in production");
+        assert!(limits().serves_api_docs(), "available while developing");
+        // Demo data, demo secrets and the plaintext allowances are refused
+        // outright: production_refuses_every_local_demo_allowance.
+        assert!(Settings { seed_demo: true, ..production() }.validate(&https(), false).is_err());
+    }
+
+    #[test]
     fn the_same_allowances_are_fine_for_a_local_demo() {
         let demo = Settings {
             production: false,
@@ -240,7 +337,23 @@ mod tests {
             mfa_required_for_admins: false,
             demo_secrets: true,
             session_hours: 8,
+            ..limits()
         };
         assert!(demo.validate(&ServiceConfig::default(), true).is_ok());
+    }
+
+    #[test]
+    fn rate_limits_and_review_periods_cannot_be_switched_off_by_configuration() {
+        let ok = limits();
+        assert!(ok.validate(&ServiceConfig::default(), true).is_ok());
+        for broken in [
+            Settings { rate_limit_login_per_minute: 0, ..limits() },
+            Settings { rate_limit_requests_per_minute: 0, ..limits() },
+            Settings { rate_limit_expensive_per_minute: 0, ..limits() },
+            Settings { access_stale_days: 0, ..limits() },
+            Settings { access_review_interval_days: 0, ..limits() },
+        ] {
+            assert!(broken.validate(&ServiceConfig::default(), true).is_err());
+        }
     }
 }

@@ -1,7 +1,8 @@
 use crate::{
     api::{
         controllers::auth::{
-            contract::{Bindings, Login, Logout, Me, MfaConfirm, MfaEnrol},
+            change_password,
+            contract::{Bindings, ChangePassword, Login, Logout, Me, MfaConfirm, MfaEnrol},
             login, logout, me, mfa_confirm, mfa_enrol,
         },
         policy::SessionCookiePolicy,
@@ -16,6 +17,7 @@ pub fn mount(router: ContractRouter<AppState>) -> Result<ContractRouter<AppState
         me: Me::bind_authorized(SessionCookiePolicy, me),
         mfa_enrol: MfaEnrol::bind_authorized(SessionCookiePolicy, mfa_enrol),
         mfa_confirm: MfaConfirm::bind_authorized(SessionCookiePolicy, mfa_confirm),
+        change_password: ChangePassword::bind_authorized(SessionCookiePolicy, change_password),
     }
     .mount(router)
 }

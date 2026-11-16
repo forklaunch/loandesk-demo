@@ -7,6 +7,59 @@ export interface User {
   role: Role;
   created_at?: string;
   mfa_enabled?: boolean;
+  last_login_at?: string | null;
+  /** Set while the account is disabled. */
+  disabled_at?: string | null;
+}
+
+/** One account in the periodic access review. */
+export interface AccessReviewEntry {
+  id: string;
+  email: string;
+  full_name: string;
+  role: Role;
+  created_at: string;
+  last_login_at: string | null;
+  password_changed_at: string | null;
+  mfa_enabled: boolean;
+  status: "active" | "disabled";
+  disabled_at: string | null;
+  disabled_reason: "admin" | "inactive" | null;
+  days_since_last_use: number;
+  stale: boolean;
+  open_sessions: number;
+}
+
+export interface AccessReview {
+  generated_at: string;
+  stale_after_days: number;
+  review_interval_days: number;
+  last_review_at: string | null;
+  last_review_by: string | null;
+  review_overdue: boolean;
+  stale_accounts: number;
+  truncated: boolean;
+  users: AccessReviewEntry[];
+}
+
+/** The access review as a CSV file, for the record of the review. */
+export function accessReviewCsv(review: AccessReview): string {
+  const cell = (value: string | number | boolean | null) => {
+    const text = value === null ? "" : String(value);
+    // Quote everything, and keep a spreadsheet from reading a cell as a formula.
+    return `"${(/^[=+\-@]/.test(text) ? "'" + text : text).replace(/"/g, '""')}"`;
+  };
+  const header = [
+    "name", "email", "role", "status", "disabled_reason", "two_factor", "created_at",
+    "last_sign_in", "days_since_last_use", "stale", "open_sessions",
+  ];
+  const rows = review.users.map((u) =>
+    [
+      u.full_name, u.email, u.role, u.status, u.disabled_reason, u.mfa_enabled, u.created_at,
+      u.last_login_at, u.days_since_last_use, u.stale, u.open_sessions,
+    ].map(cell).join(","),
+  );
+  return [header.join(","), ...rows].join("\r\n") + "\r\n";
 }
 
 export interface Risk {

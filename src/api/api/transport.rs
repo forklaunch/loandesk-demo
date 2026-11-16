@@ -9,7 +9,10 @@
 //!   nosniff, frame denial, no-referrer and no-store);
 //! - keeps the original CSRF backstop: state-changing requests must carry
 //!   `X-Requested-With: loandesk`, which browsers do not send cross-site.
-use crate::registrations::AppState;
+use crate::{api::rate_limit, registrations::AppState};
+
+/// The public sign-in route, limited per client address in [`layer`].
+pub const LOGIN_PATH: &str = "/api/auth/login";
 use axum::{
     Json,
     extract::{Request, State},
@@ -123,7 +126,30 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
     let safe = matches!(method, Method::GET | Method::HEAD | Method::OPTIONS);
     let has_header =
         request.headers().get("x-requested-with").is_some_and(|value| value == "loandesk");
-    let mut response = if safe || has_header {
+    // Sign-in is the one public route that does real work (a password hash):
+    // it is limited per client address here, before the body is read.
+    let login_refused = method == Method::POST
+        && request.uri().path() == LOGIN_PATH
+        && !state.limits.login.allow(&rate_limit::client_address(
+            request.headers().get("x-forwarded-for").and_then(|value| value.to_str().ok()),
+        ));
+    let mut response = if login_refused {
+        tracing::warn!(
+            parent: &span,
+            event = "rate_limited",
+            limit = "login",
+            operation = "Sign In",
+            "request refused: rate limit reached"
+        );
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, HeaderValue::from_static("60"))],
+            Json(
+                serde_json::json!({ "error": "Too many sign-in attempts. Try again in a minute." }),
+            ),
+        )
+            .into_response()
+    } else if safe || has_header {
         SLOT.scope(slot.clone(), next.run(request)).instrument(span.clone()).await
     } else {
         (

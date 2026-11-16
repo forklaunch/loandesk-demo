@@ -1,4 +1,4 @@
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Clone)]
 pub struct LoginRequest {
     #[field(max_length = 254)]
@@ -35,9 +35,19 @@ pub struct MfaEnrolment {
     pub otpauth_url: String,
 }
 
-#[forklaunch_core::contract::schema]
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
 #[derive(Clone)]
 pub struct MfaCode {
     #[field(max_length = 12)]
     pub code: String,
+}
+
+/// A signed-in user changing their own password.
+#[forklaunch_core::contract::schema(unknown_fields = "deny")]
+#[derive(Clone)]
+pub struct ChangePassword {
+    #[field(max_length = 1024)]
+    pub current_password: String,
+    #[field(min_length = 12, max_length = 1024)]
+    pub new_password: String,
 }

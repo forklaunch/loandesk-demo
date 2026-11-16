@@ -265,6 +265,13 @@ impl DocumentsService {
         self.db.audit(&mut tx, Some(user.id), "document_downloaded", Some(document), None).await?;
         disclosures.persist(&mut tx, user.id).await?;
         tx.commit().await.map_err(storage("record download"))?;
+        tracing::info!(
+            event = "document_downloaded",
+            user_id = %user.id,
+            document = %document,
+            request_id = %transport::request_id(),
+            "document download link issued"
+        );
         Ok(DownloadGrant { url })
     }
 }

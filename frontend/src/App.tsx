@@ -94,6 +94,9 @@ export default function App() {
   }
 
   async function logout() {
+    // Deliberately ignored: if the request fails (offline, or the session has
+    // already ended) the user still leaves the signed-in screens, and the
+    // session expires on the server on its own.
     await api("POST", "/auth/logout").catch(() => undefined);
     setUser(null);
   }

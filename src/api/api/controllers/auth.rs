@@ -1,7 +1,9 @@
 //! Sign-in, sign-out, the current user, and two-factor enrolment.
 use crate::{
     api::policy::CurrentUser,
-    domain::schemas::auth::{LoginRequest, MfaCode, MfaEnrolment, Ok as OkBody, SessionUser},
+    domain::schemas::auth::{
+        ChangePassword, LoginRequest, MfaCode, MfaEnrolment, Ok as OkBody, SessionUser,
+    },
     error::AppError,
     registrations::AppState,
 };
@@ -41,10 +43,19 @@ pub async fn mfa_confirm(
 ) -> Result<OkBody, EndpointError> {
     state.auth.mfa_confirm(&user, &input.code).await.map_err(AppError::into_endpoint)
 }
+pub async fn change_password(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    input: ChangePassword,
+) -> Result<OkBody, EndpointError> {
+    state.auth.change_password(&user, input).await.map_err(AppError::into_endpoint)
+}
 
 #[forklaunch_core::contract::api]
 pub mod contract {
-    use crate::domain::schemas::auth::{LoginRequest, MfaCode, MfaEnrolment, Ok, SessionUser};
+    use crate::domain::schemas::auth::{
+        ChangePassword as ChangePasswordBody, LoginRequest, MfaCode, MfaEnrolment, Ok, SessionUser,
+    };
     use forklaunch_core::contract::{
         HttpMethod,
         endpoint::{Endpoint, JsonBody, NoBody},
@@ -98,5 +109,16 @@ pub mod contract {
             200,
         )
         .expect("valid mfa confirm endpoint")
+    }
+    #[access(Authenticated)]
+    pub fn change_password() -> Endpoint<JsonBody<ChangePasswordBody>, JsonBody<Ok>> {
+        Endpoint::new(
+            "Change Password",
+            "Change the caller's own password; ends every session of the user and starts a new one",
+            HttpMethod::Post,
+            "/api/auth/password",
+            200,
+        )
+        .expect("valid change password endpoint")
     }
 }

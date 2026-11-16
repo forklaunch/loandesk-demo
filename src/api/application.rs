@@ -9,10 +9,10 @@ pub fn http_router(state: AppState) -> ApplicationResult<Router> {
     let router = routes::router()?;
     // The OpenAPI document and docs UI describe every route; they are a
     // development aid and are not served in production.
-    let router = if state.settings.production {
-        router
-    } else {
+    let router = if state.settings.serves_api_docs() {
         native::with_docs(router, &registry, &state.config.docs_path, &state.config.version)?
+    } else {
+        router
     };
     Ok(router.with_state(state))
 }

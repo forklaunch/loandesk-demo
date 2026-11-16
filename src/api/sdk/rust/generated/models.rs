@@ -25,6 +25,165 @@ where
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+pub struct AccessReview {
+    #[serde(with = "::forklaunch_universal_sdk::datetime")]
+    #[serde(rename = "generated_at")]
+    pub generated_at: ::forklaunch_universal_sdk::datetime::DateTime<
+        ::forklaunch_universal_sdk::datetime::Utc,
+    >,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "last_review_at")]
+    pub last_review_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "last_review_by")]
+    pub last_review_by: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "review_interval_days")]
+    pub review_interval_days: i64,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "review_overdue")]
+    pub review_overdue: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "stale_accounts")]
+    pub stale_accounts: i64,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "stale_after_days")]
+    pub stale_after_days: i64,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "truncated")]
+    pub truncated: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "users")]
+    pub users: Vec<AccessReviewEntry>,
+    #[serde(flatten)]
+    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+pub struct AccessReviewEntry {
+    #[serde(with = "::forklaunch_universal_sdk::datetime")]
+    #[serde(rename = "created_at")]
+    pub created_at: ::forklaunch_universal_sdk::datetime::DateTime<
+        ::forklaunch_universal_sdk::datetime::Utc,
+    >,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "days_since_last_use")]
+    pub days_since_last_use: i64,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "disabled_at")]
+    pub disabled_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "disabled_reason")]
+    pub disabled_reason: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "email")]
+    pub email: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "full_name")]
+    pub full_name: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "last_login_at")]
+    pub last_login_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "mfa_enabled")]
+    pub mfa_enabled: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "open_sessions")]
+    pub open_sessions: i64,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "password_changed_at")]
+    pub password_changed_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "role")]
+    pub role: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "stale")]
+    pub stale: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(flatten)]
+    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+pub struct AccessReviewRecorded {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "accounts")]
+    pub accounts: i64,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "disabled_accounts")]
+    pub disabled_accounts: i64,
+    #[serde(with = "::forklaunch_universal_sdk::datetime")]
+    #[serde(rename = "reviewed_at")]
+    pub reviewed_at: ::forklaunch_universal_sdk::datetime::DateTime<
+        ::forklaunch_universal_sdk::datetime::Utc,
+    >,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "stale_accounts")]
+    pub stale_accounts: i64,
+    #[serde(flatten)]
+    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
 pub struct Application {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "address")]
@@ -177,6 +336,57 @@ pub struct ApplicationExport {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+pub struct AuditEntry {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "action")]
+    pub action: String,
+    #[serde(with = "::forklaunch_universal_sdk::datetime")]
+    #[serde(rename = "at")]
+    pub at: ::forklaunch_universal_sdk::datetime::DateTime<
+        ::forklaunch_universal_sdk::datetime::Utc,
+    >,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "detail")]
+    pub detail: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "entity_id")]
+    pub entity_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "id")]
+    pub id: i64,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "request_id")]
+    pub request_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "user_id")]
+    pub user_id: Option<Option<String>>,
+    #[serde(flatten)]
+    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserErrorReport {
     #[serde(deserialize_with = "deserialize_required_field")]
@@ -194,6 +404,23 @@ pub struct BrowserErrorReport {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "stack")]
     pub stack: String,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
+pub struct ChangePassword {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "current_password")]
+    pub current_password: String,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "new_password")]
+    pub new_password: String,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -282,6 +509,7 @@ pub struct Decided {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct Decision {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "decision")]
@@ -289,8 +517,6 @@ pub struct Decision {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "note")]
     pub note: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -309,6 +535,20 @@ pub struct DependencyCheck {
     pub status: String,
     #[serde(flatten)]
     pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
+pub struct DisableUserParams {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "id")]
+    pub id: DisableUserParamsField0,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -419,6 +659,20 @@ pub struct DownloadGrant {
     pub url: String,
     #[serde(flatten)]
     pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
+pub struct EnableUserParams {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "id")]
+    pub id: EnableUserParamsField0,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -539,6 +793,49 @@ pub struct ListApplicationsResponseHeaders {
     ::serde::Deserialize
 )]
 #[serde(deny_unknown_fields)]
+pub struct ListAuditLogQuery {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "limit")]
+    pub limit: Option<ListAuditLogQueryField0>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "cursor")]
+    pub cursor: Option<ListAuditLogQueryField1>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
+pub struct ListAuditLogResponseHeaders {
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_field",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    #[serde(rename = "x-next-cursor")]
+    pub x_next_cursor: Option<Option<String>>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
 pub struct ListUsersQuery {
     #[serde(
         default,
@@ -581,6 +878,7 @@ pub struct ListUsersResponseHeaders {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct LoginRequest {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "email")]
@@ -595,8 +893,6 @@ pub struct LoginRequest {
     )]
     #[serde(rename = "totp")]
     pub totp: Option<String>,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -606,12 +902,11 @@ pub struct LoginRequest {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct MfaCode {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "code")]
     pub code: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -639,6 +934,7 @@ pub struct MfaEnrolment {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct NewApplication {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "address")]
@@ -661,8 +957,6 @@ pub struct NewApplication {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "requested_amount")]
     pub requested_amount: i64,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -672,6 +966,7 @@ pub struct NewApplication {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct NewDocument {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "doc_type")]
@@ -682,8 +977,6 @@ pub struct NewDocument {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "size_bytes")]
     pub size_bytes: i64,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -693,6 +986,7 @@ pub struct NewDocument {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct NewOwner {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "date_of_birth")]
@@ -706,8 +1000,6 @@ pub struct NewOwner {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "ssn")]
     pub ssn: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -717,6 +1009,7 @@ pub struct NewOwner {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct NewUser {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "email")]
@@ -730,8 +1023,6 @@ pub struct NewUser {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "role")]
     pub role: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -911,6 +1202,7 @@ pub struct SearchApplicationsResponseHeaders {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct SearchRequest {
     #[serde(
         default,
@@ -929,8 +1221,6 @@ pub struct SearchRequest {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "q")]
     pub q: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -967,12 +1257,11 @@ pub struct SessionUser {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+#[serde(deny_unknown_fields)]
 pub struct SetRole {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "role")]
     pub role: String,
-    #[serde(flatten)]
-    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
 #[derive(
     ::std::fmt::Debug,
@@ -1026,6 +1315,16 @@ pub struct User {
     pub created_at: ::forklaunch_universal_sdk::datetime::DateTime<
         ::forklaunch_universal_sdk::datetime::Utc,
     >,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "disabled_at")]
+    pub disabled_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "email")]
     pub email: String,
@@ -1035,12 +1334,24 @@ pub struct User {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "id")]
     pub id: String,
+    #[serde(with = "::forklaunch_universal_sdk::datetime::optional")]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    #[serde(rename = "last_login_at")]
+    pub last_login_at: Option<
+        Option<
+            ::forklaunch_universal_sdk::datetime::DateTime<
+                ::forklaunch_universal_sdk::datetime::Utc,
+            >,
+        >,
+    >,
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "role")]
     pub role: String,
     #[serde(flatten)]
     pub additional_properties: BTreeMap<String, ::serde_json::Value>,
 }
+pub type AccessReviewResponseUsersItem = AccessReviewUsersItem;
+pub type AccessReviewUsersItem = AccessReviewEntry;
 pub type ApplicationDetailApplication = Application;
 pub type ApplicationDetailApplicationRisk = Risk;
 pub type ApplicationDetailDocumentsItem = Document;
@@ -1050,6 +1361,7 @@ pub type ApplicationExportApplication = Application;
 pub type ApplicationExportApplicationRisk = Risk;
 pub type ApplicationExportDocumentsItem = Document;
 pub type ApplicationExportOwnersItem = Owner;
+pub type ChangePasswordRequestBody = ChangePassword;
 pub type CompleteDocumentUploadParamsField0 = String;
 pub type ConfirmTwoFactorEnrolmentRequestBody = MfaCode;
 pub type CreateApplicationHeadersField0 = String;
@@ -1058,7 +1370,9 @@ pub type CreateApplicationRequestBodyOwnersItem = NewApplicationOwnersItem;
 pub type CreateUserRequestBody = NewUser;
 pub type DecideApplicationParamsField0 = String;
 pub type DecideApplicationRequestBody = Decision;
+pub type DisableUserParamsField0 = String;
 pub type DownloadDocumentParamsField0 = String;
+pub type EnableUserParamsField0 = String;
 pub type ExportApplicationParamsField0 = String;
 pub type ExportApplicationResponseApplication = ApplicationExportApplication;
 pub type ExportApplicationResponseApplicationRisk = ApplicationExportApplicationRisk;
@@ -1078,6 +1392,9 @@ pub type ListApplicationsQueryField0 = i64;
 pub type ListApplicationsQueryField1 = String;
 pub type ListApplicationsResponseItem = Application;
 pub type ListApplicationsResponseItemRisk = Risk;
+pub type ListAuditLogQueryField0 = i64;
+pub type ListAuditLogQueryField1 = String;
+pub type ListAuditLogResponseItem = AuditEntry;
 pub type ListUsersQueryField0 = i64;
 pub type ListUsersQueryField1 = String;
 pub type ListUsersResponseItem = User;
@@ -1534,6 +1851,50 @@ pub enum ConfirmTwoFactorEnrolmentResponses {
     Status503(Box<EndpointFailure>),
 }
 #[derive(Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct ChangePasswordRequest<T = ChangePasswordRequestBody> {
+    pub params: BTreeMap<String, String>,
+    pub query: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+    pub body: Option<T>,
+}
+impl<T> Default for ChangePasswordRequest<T> {
+    fn default() -> Self {
+        Self {
+            params: Default::default(),
+            query: Default::default(),
+            headers: Default::default(),
+            body: None,
+        }
+    }
+}
+impl<T> fmt::Debug for ChangePasswordRequest<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ChangePasswordRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .field("has_body", &self.body.is_some())
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum ChangePasswordResponses {
+    Status200(Box<Ok>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct ReportBrowserErrorRequest<T = ReportBrowserErrorRequestBody> {
     pub params: BTreeMap<String, String>,
     pub query: BTreeMap<String, String>,
@@ -1882,6 +2243,162 @@ impl<T> fmt::Debug for SetUserRoleRequest<T> {
 #[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
 pub enum SetUserRoleResponses {
     Status200(Box<User>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct DisableUserRequest {
+    pub params: DisableUserParams,
+    pub query: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for DisableUserRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DisableUserRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum DisableUserResponses {
+    Status200(Box<User>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct EnableUserRequest {
+    pub params: EnableUserParams,
+    pub query: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for EnableUserRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("EnableUserRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum EnableUserResponses {
+    Status200(Box<User>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct AccessReviewRequest {
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for AccessReviewRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AccessReviewRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum AccessReviewResponses {
+    Status200(Box<AccessReview>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct RecordAccessReviewRequest {
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for RecordAccessReviewRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RecordAccessReviewRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum RecordAccessReviewResponses {
+    Status201(Box<AccessReviewRecorded>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct ListAuditLogRequest {
+    pub params: BTreeMap<String, String>,
+    pub query: ListAuditLogQuery,
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for ListAuditLogRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ListAuditLogRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum ListAuditLogResponses {
+    Status200(SdkResponseWithHeaders<Vec<AuditEntry>, ListAuditLogResponseHeaders>),
     Status400(Box<EndpointFailure>),
     Status401(Box<EndpointFailure>),
     Status403(Box<EndpointFailure>),
