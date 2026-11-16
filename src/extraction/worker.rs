@@ -4,6 +4,7 @@
  * This is an auto-generated file. Modifications are encouraged but may inhibit automated upgrades.
  */
 
+use crate::lifecycle::{Lifecycle, LifecycleConfig};
 use crate::signals;
 use crate::{WORKER_NAME, events, handler::ApplicationHandler};
 use forklaunch_core::{config, persistence::TenantContext, telemetry::OpenTelemetryCollector};
@@ -25,12 +26,13 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     if !args.is_empty()
         && args != ["--migrate"]
         && args != ["--control-service"]
+        && args != ["--lifecycle-once"]
         && !(args.len() == 3 && args[0] == "--enqueue")
         && !(args.len() == 2
             && matches!(args[0].as_str(), "--inspect" | "--dead-letters" | "--retry" | "--signal"))
         && !(args.len() == 3 && matches!(args[0].as_str(), "--purge-completed" | "--purge-failed"))
     {
-        return Err("Expected --signal pause/resume/drain, no arguments, --control-service, --migrate, --enqueue ID JSON, --inspect ID, --dead-letters LIMIT, --retry ID, or --purge-completed/--purge-failed AGE_SECONDS LIMIT".into());
+        return Err("Expected --signal pause/resume/drain, no arguments, --control-service, --migrate, --lifecycle-once, --enqueue ID JSON, --inspect ID, --dead-letters LIMIT, --retry ID, or --purge-completed/--purge-failed AGE_SECONDS LIMIT".into());
     }
     if args == ["--control-service"] {
         let http = http_config()?.ok_or("--control-service requires WORKER_HTTP_ADDR")?;
@@ -60,6 +62,24 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     if args == ["--migrate"] {
         PostgresWorkerQueue::migrate(&pool).await?;
         pool.close().await;
+        return Ok(());
+    }
+    if args == ["--lifecycle-once"] {
+        // One pass of the scheduled retention and access housekeeping, now.
+        // Prints what it did; a second instance running it at the same time skips.
+        let lifecycle = Lifecycle::new(
+            pool.clone(),
+            TenantContext::new(config::required::<String>("TENANT_ID")?)?,
+            crate::storage::object_store().await?,
+            LifecycleConfig::from_env()?,
+        );
+        let report = lifecycle.run_once().await;
+        pool.close().await;
+        let report = report.map_err(|_| "the scheduled maintenance pass could not start")?;
+        println!("{}", report.to_json());
+        if report.failed_steps > 0 {
+            return Err("a scheduled maintenance step failed; see the log".into());
+        }
         return Ok(());
     }
     let tenant = TenantContext::new(config::required::<String>("TENANT_ID")?)?;
@@ -137,10 +157,23 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         // stuck worker or a pile of failed jobs shows up before users notice.
         let monitor =
             tokio::spawn(crate::monitor::run(queue.clone(), config.queue.clone(), telemetry));
+        // Retention purge, stale accounts and the review reminders, on a
+        // schedule. Every worker instance starts it; an advisory lock lets
+        // one pass run at a time across all of them (lifecycle.rs).
+        let lifecycle = tokio::spawn(
+            Lifecycle::new(
+                pool.clone(),
+                TenantContext::new(config::required::<String>("TENANT_ID")?)?,
+                crate::storage::object_store().await?,
+                LifecycleConfig::from_env()?,
+            )
+            .run(),
+        );
         let result =
             signals::run(&queue, &handler, &config, retention.as_ref(), http.as_ref(), shutdown())
                 .await;
         monitor.abort();
+        lifecycle.abort();
         let result = result?;
         if retention.is_some() {
             println!(

@@ -19,6 +19,7 @@ pub use registrations::{
     WORKER_NAME, WORKER_VERSION, WorkerContext, build_context, contract_registry, run_once,
     write_contract_artifacts,
 };
+pub mod lifecycle;
 pub mod monitor;
 pub mod signals;
 pub mod storage;

@@ -106,6 +106,7 @@ features = [
     "runtime-tokio",
     "tls-rustls",
     "postgres",
+    "uuid",
 ]
 version = "0.9"
 

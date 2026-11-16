@@ -37,6 +37,8 @@ use uuid::Uuid;
 const JOB_TYPE: &str = "extract_document_figures";
 pub const JOB_DURATION: &str = "loandesk.extraction.job.duration_ms";
 pub const JOB_OUTCOMES: &str = "loandesk.extraction.jobs";
+/// How long each call to PostgreSQL and the object store took, by outcome.
+pub const DEPENDENCY_DURATION: &str = "loandesk.dependency.duration_ms";
 
 pub struct ApplicationHandler {
     pool: PgPool,
@@ -133,7 +135,25 @@ impl ApplicationHandler {
         };
         telemetry.define_metric(JOB_DURATION, MetricType::Histogram).map_err(metric)?;
         telemetry.define_metric(JOB_OUTCOMES, MetricType::Counter).map_err(metric)?;
+        telemetry.define_metric(DEPENDENCY_DURATION, MetricType::Histogram).map_err(metric)?;
         Ok(Self { pool, tenant, store, max_attempts, telemetry })
+    }
+
+    /// Records the duration and outcome of one dependency call.
+    fn observe(
+        &self,
+        dependency: &'static str,
+        operation: &'static str,
+        started: Instant,
+        ok: bool,
+    ) {
+        let attributes = [
+            KeyValue::new("dependency", dependency),
+            KeyValue::new("operation", operation),
+            KeyValue::new("outcome", if ok { "ok" } else { "error" }),
+        ];
+        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        let _ = self.telemetry.record_metric(DEPENDENCY_DURATION, elapsed, &attributes);
     }
 
     async fn run(
@@ -145,14 +165,16 @@ impl ApplicationHandler {
         // Check state before acting: a redelivered job must not redo finished work.
         let mut tx =
             begin_tenant_transaction(&self.pool, &self.tenant).await.map_err(transient("begin"))?;
-        let row: Option<(String, String)> = sqlx::query_as(
+        let started = Instant::now();
+        let row: Result<Option<(String, String)>, _> = sqlx::query_as(
             "SELECT status, storage_key FROM documents WHERE id = $1 AND application_id = $2 FOR UPDATE",
         )
         .bind(document)
         .bind(application)
         .fetch_optional(&mut *tx)
-        .await
-        .map_err(transient("load document"))?;
+        .await;
+        self.observe("postgresql", "load document", started, row.is_ok());
+        let row = row.map_err(transient("load document"))?;
         let Some((status, key)) = row else {
             return Ok(Outcome::Unreadable("the document no longer exists"));
         };
@@ -172,19 +194,27 @@ impl ApplicationHandler {
             return Ok(Outcome::Unreadable("the stored file is not available"));
         }
         // Streamed in bounded chunks with a deadline; the store caps the object size.
-        let Some(mut download) =
-            self.store.download(&key).await.map_err(transient("open stored file"))?
-        else {
+        let started = Instant::now();
+        let opened = self.store.download(&key).await;
+        if opened.is_err() {
+            self.observe("object_store", "download", started, false);
+        }
+        let Some(mut download) = opened.map_err(transient("open stored file"))? else {
+            self.observe("object_store", "download", started, true);
             return Ok(Outcome::Unreadable("the stored file is missing"));
         };
         let mut bytes = Vec::new();
-        while let Some(chunk) =
-            download.next_chunk().await.map_err(transient("read stored file"))?
-        {
+        loop {
+            let chunk = download.next_chunk().await;
+            if chunk.is_err() {
+                self.observe("object_store", "download", started, false);
+            }
+            let Some(chunk) = chunk.map_err(transient("read stored file"))? else { break };
             if !append_chunk(&mut bytes, &chunk) {
                 return Ok(Outcome::Unreadable("the stored file is larger than the 20 MB limit"));
             }
         }
+        self.observe("object_store", "download", started, true);
 
         // PDF parsing is CPU-bound and can panic on malformed files; running it
         // on a blocking thread turns a panic into an error for this one document.
