@@ -16,7 +16,8 @@
     "**/lib/**/*",
     "**/node_modules/**/*",
     "**/sdk/typescript/**/*",
-    "**/events/typescript/**/*"
+    "**/events/typescript/**/*",
+    "**/web-dist/**/*"
   ],
   "overrides": [
     {
