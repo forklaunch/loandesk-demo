@@ -68,7 +68,7 @@ def report_of(output, field):
 
 def lifecycle_once():
     """One pass of the worker's scheduled job, in the worker's own container."""
-    result = compose("exec", "-T", "extraction", "/bin/sh", "/usr/local/bin/demo-env", "/app/bin/extraction", "--lifecycle-once")
+    result = compose("exec", "-T", "loans-worker", "/bin/sh", "/usr/local/bin/demo-env", "/app/bin/extraction", "--lifecycle-once")
     JOB_OUTPUT.append(result.stdout + result.stderr)
     return report_of(result.stdout, "applications_purged")
 
@@ -104,9 +104,9 @@ def wait_ready():
 
 
 def restart_backend():
-    compose("restart", "api", "extraction")
+    compose("restart", "loans-service", "loans-worker")
     wait_ready()
-    compose("up", "-d", "--wait", "--no-recreate", "api", "extraction")
+    compose("up", "-d", "--wait", "--no-recreate", "loans-service", "loans-worker")
 
 
 def wait_document(client, application, document):
@@ -256,7 +256,7 @@ def main():
     check(priya.call("POST", "/api/applications/search", {"q": "dental"})[0] == 200, "nor is anyone else")
     bogus = Client()
     bogus.call("GET", "/api/auth/me", headers={"Cookie": "loandesk_session=" + "0" * 64})
-    logs = compose("logs", "--no-color", "--since", "15m", "api", "extraction").stdout + "".join(JOB_OUTPUT)
+    logs = compose("logs", "--no-color", "--since", "15m", "loans-service", "loans-worker").stdout + "".join(JOB_OUTPUT)
     for event in ("rate_limited", "invalid_session", "login_failed", "login_refused_disabled", "permission_denied", "password_changed", "password_change_refused", "user_disabled", "user_enabled", "access_review_recorded", "stale_accounts_disabled", "retention_purge", "lifecycle_pass"):
         check(f'"{event}"' in logs or f"event={event}" in logs, f"the `{event}` event is in the log, for the alert rules to count")
 
