@@ -57,7 +57,7 @@ sha2 = "0.10"
 hmac = "0.12"
 subtle = "2"
 hex = "0.4"
-base64 = "0.22"
+base64 = "0.23"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
