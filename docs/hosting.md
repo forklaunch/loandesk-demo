@@ -1,7 +1,8 @@
 # Hosting the demo on ForkLaunch
 
 How the public demo copy of LoanDesk is meant to run on the ForkLaunch platform, which settings
-each part needs, and what is still unproven. **No deployment has been made from this document.**
+each part needs, and what is still unproven. **The demo was first deployed this way on 2026-11-16**
+(both parts always on); the scale-to-zero sections further down have not been exercised.
 Everything marked *verified* was read from code or run locally (the last section says which);
 everything else is listed under "Not verified".
 
@@ -122,12 +123,13 @@ restore them with `git checkout src/api/sdk` afterwards, or CI's "generated sour
 
 ## Object tags on the platform
 
-A server-side write labels the stored file with its classification (an S3 object tag). The
-platform's bucket grant covers `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
-`s3:AbortMultipartUpload` and `s3:ListBucket`, not `s3:PutObjectTagging`, so a tagged write is
-refused (found on the first deploy, 2026-11-16: the API failed while seeding with "store object").
-Until the platform grants tagging, store `S3_OBJECT_TAGS=false` at application scope. The
-classification is still recorded on every document's database row.
+A server-side write labels the stored file with its classification (an S3 object tag), and the
+framework reads an object's tags when it downloads one. The first deploy (2026-11-16) found that the
+platform's bucket grant did not include the tagging actions: seeding failed on the tagged write,
+and downloads failed on the tag read. The platform now grants `s3:PutObjectTagging`,
+`s3:GetObjectTagging` and `s3:GetObjectVersionTagging` on the application's own objects, and the
+demo runs with tags on. `S3_OBJECT_TAGS=false` remains as a setting for storage that cannot tag;
+the classification is always recorded on the document's database row.
 
 ## What runs where (once the API scales to zero)
 
@@ -274,9 +276,9 @@ before the API's first start (see "Not verified").
 ### Bucket access from a scale-to-zero API
 
 Not a concern while both parts are always on: each ECS task role is granted the bucket. For scale
-to zero, a MicroVM's role could only write its log when this was written
-(`utils/microvm-compute.ts`); that is being fixed in the platform's generator, and once the fix is
-live the platform grants the scale-to-zero role the bucket. Nothing is worked around here.
+to zero, the platform now grants the service's own role the same bucket access. Not yet exercised
+for LoanDesk: the API reads the bucket while starting, and whether that works when the service is
+started as a scale-to-zero image has to be tested before the switch.
 
 ### One database for two parts, and the worker's use of the bucket
 
