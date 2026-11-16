@@ -7555,7 +7555,7 @@
                       "type": "string"
                     },
                     "url": {
-                      "description": "POST a multipart form here: every entry of `fields`, then the file as `file`.",
+                      "description": "POST a multipart form here: every entry of `fields`, then the file as\n`file`. Where files travel through the API (`ClientSettingsResponse`), PUT the\nPDF itself here instead; `fields` is then empty.",
                       "type": "string"
                     },
                     "fields": {
@@ -8471,6 +8471,445 @@
                 }
               },
               "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 400,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 401,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 403,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 404,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 408,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 409,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 413,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 415,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 429,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 500,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 502,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 503,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          }
+        ],
+        "options": {
+          "requestValidation": "error",
+          "responseValidation": "error",
+          "openapi": true,
+          "mcp": true
+        },
+        "rbac": {
+          "allowedPermissions": [],
+          "forbiddenPermissions": [],
+          "allowedRoles": [
+            "relationship_manager",
+            "credit_officer"
+          ],
+          "forbiddenRoles": [],
+          "scopeHierarchy": [],
+          "requiredFeatures": [],
+          "requireActiveSubscription": false
+        }
+      }
+    },
+    {
+      "source": "api/controllers/documents.rs",
+      "group": "contract",
+      "member": "read_content",
+      "transport": "http",
+      "contract": {
+        "name": "Read Document Content",
+        "operationName": "readDocumentContent",
+        "summary": "Hosted demo only: the stored PDF itself; the download is audited",
+        "method": "GET",
+        "path": "/api/documents/:id/content",
+        "openapiPath": "/api/documents/{id}/content",
+        "access": "protected",
+        "request": {
+          "params": [
+            {
+              "name": "id",
+              "schema": {
+                "name": "IdPathid",
+                "jsonSchema": {
+                  "type": "string"
+                }
+              },
+              "required": true
+            }
+          ],
+          "query": [],
+          "headers": []
+        },
+        "responses": [
+          {
+            "statusCode": 200,
+            "headers": [
+              {
+                "name": "content-disposition",
+                "schema": {
+                  "name": "FixedHeader",
+                  "jsonSchema": {
+                    "type": "string",
+                    "const": "attachment"
+                  }
+                },
+                "required": true
+              }
+            ],
+            "body": {
+              "kind": "binary",
+              "schema": {
+                "name": "string",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "string",
+                  "type": "string"
+                }
+              },
+              "contentType": "application/pdf"
             }
           },
           {
@@ -9850,6 +10289,439 @@
                         "projection": "value"
                       }
                     }
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 400,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 401,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 403,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 404,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 408,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 409,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 413,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 415,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 429,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 500,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 502,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          },
+          {
+            "statusCode": 503,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "EndpointFailure",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "EndpointFailure",
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "forklaunch_core::contract::endpoint::EndpointFailure",
+                    "name": "EndpointFailure",
+                    "projection": "value"
+                  }
+                }
+              },
+              "contentType": "application/json"
+            }
+          }
+        ],
+        "options": {
+          "requestValidation": "error",
+          "responseValidation": "error",
+          "openapi": true,
+          "mcp": true
+        }
+      }
+    },
+    {
+      "source": "api/controllers/health.rs",
+      "group": "contract",
+      "member": "client_settings",
+      "transport": "http",
+      "contract": {
+        "name": "Get Client Settings",
+        "operationName": "getClientSettings",
+        "summary": "What the front end needs before sign-in: demo banner, upload route and size limit",
+        "method": "GET",
+        "path": "/api/client-settings",
+        "openapiPath": "/api/client-settings",
+        "access": "public",
+        "request": {
+          "params": [],
+          "query": [],
+          "headers": []
+        },
+        "responses": [
+          {
+            "statusCode": 200,
+            "headers": [],
+            "body": {
+              "kind": "json",
+              "schema": {
+                "name": "ClientSettingsResponse",
+                "jsonSchema": {
+                  "$schema": "http://json-schema.org/draft-07/schema#",
+                  "title": "ClientSettingsResponse",
+                  "description": "What the front end needs to know about this deployment before sign-in.",
+                  "type": "object",
+                  "properties": {
+                    "hosted_demo": {
+                      "description": "A public copy with fictional data: the front end shows the demo banner.",
+                      "type": "boolean"
+                    },
+                    "documents_through_api": {
+                      "description": "Document files are sent to and read from the API, not object storage.",
+                      "type": "boolean"
+                    },
+                    "max_upload_bytes": {
+                      "description": "Largest PDF accepted, in bytes.",
+                      "type": "integer",
+                      "format": "int64",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "hosted_demo",
+                    "documents_through_api",
+                    "max_upload_bytes"
+                  ],
+                  "x-forklaunch-model": {
+                    "version": 1,
+                    "id": "api_contracts::schemas::ClientSettingsResponse",
+                    "name": "ClientSettingsResponse",
+                    "projection": "value"
                   }
                 }
               },

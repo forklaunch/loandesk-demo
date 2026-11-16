@@ -160,6 +160,12 @@ export type ChangePassword = {
   new_password: string
 };
 
+export type ClientSettingsResponse = {
+  documents_through_api: boolean;
+  hosted_demo: boolean;
+  max_upload_bytes: number
+};
+
 export type Created = {
   id: string;
   reference: string
@@ -710,6 +716,32 @@ export type DownloadDocumentResponse =
     >
   | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
 
+export type ReadDocumentContentRequest = ForkLaunchSdkRequest<
+  {
+    "id": string
+  },
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type ReadDocumentContentResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/pdf';
+      response: Uint8Array;
+      headers: {
+        'content-disposition': 'attachment'
+      };
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
 export type GetReadinessRequest = ForkLaunchSdkRequest<
   never,
   never,
@@ -744,6 +776,27 @@ export type GetLivenessResponse =
       status: 200;
       contentType: 'application/json';
       response: HealthResponse;
+    }
+  | ForkLaunchSdkResponse<
+      Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
+      never,
+      Record<number, 'application/json'>
+    >
+  | ForkLaunchSdkResponse<Omit<ForkLaunchErrorResponses, 200 | 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503>>;
+
+export type GetClientSettingsRequest = ForkLaunchSdkRequest<
+  never,
+  never,
+  never,
+  ForkLaunchHeaders
+>;
+
+export type GetClientSettingsResponse =
+  | {
+      code: 200;
+      status: 200;
+      contentType: 'application/json';
+      response: ClientSettingsResponse;
     }
   | ForkLaunchSdkResponse<
       Record<400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 429 | 500 | 502 | 503, EndpointFailure>,
@@ -978,8 +1031,10 @@ export type ApiSdkClient = {
     requestDocumentUpload: (input: RequestDocumentUploadRequest) => Promise<RequestDocumentUploadResponse>;
     completeDocumentUpload: (input: CompleteDocumentUploadRequest) => Promise<CompleteDocumentUploadResponse>;
     downloadDocument: (input: DownloadDocumentRequest) => Promise<DownloadDocumentResponse>;
+    readDocumentContent: (input: ReadDocumentContentRequest) => Promise<ReadDocumentContentResponse>;
     getReadiness: (input?: GetReadinessRequest) => Promise<GetReadinessResponse>;
     getLiveness: (input?: GetLivenessRequest) => Promise<GetLivenessResponse>;
+    getClientSettings: (input?: GetClientSettingsRequest) => Promise<GetClientSettingsResponse>;
     listUsers: (input: ListUsersRequest) => Promise<ListUsersResponse>;
     createUser: (input: CreateUserRequest) => Promise<CreateUserResponse>;
     setUserRole: (input: SetUserRoleRequest) => Promise<SetUserRoleResponse>;

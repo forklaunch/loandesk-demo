@@ -430,6 +430,27 @@ pub struct ChangePassword {
     ::serde::Serialize,
     ::serde::Deserialize
 )]
+pub struct ClientSettingsResponse {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "documents_through_api")]
+    pub documents_through_api: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "hosted_demo")]
+    pub hosted_demo: bool,
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "max_upload_bytes")]
+    pub max_upload_bytes: i64,
+    #[serde(flatten)]
+    pub additional_properties: BTreeMap<String, ::serde_json::Value>,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
 #[serde(deny_unknown_fields)]
 pub struct CompleteDocumentUploadParams {
     #[serde(deserialize_with = "deserialize_required_field")]
@@ -1096,6 +1117,34 @@ pub struct Permissions {
     ::serde::Deserialize
 )]
 #[serde(deny_unknown_fields)]
+pub struct ReadDocumentContentParams {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "id")]
+    pub id: ReadDocumentContentParamsField0,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
+pub struct ReadDocumentContentResponseHeaders {
+    #[serde(deserialize_with = "deserialize_required_field")]
+    #[serde(rename = "content-disposition")]
+    pub content_disposition: String,
+}
+#[derive(
+    ::std::fmt::Debug,
+    ::std::clone::Clone,
+    ::std::default::Default,
+    ::std::cmp::PartialEq,
+    ::serde::Serialize,
+    ::serde::Deserialize
+)]
+#[serde(deny_unknown_fields)]
 pub struct RequestDocumentUploadParams {
     #[serde(deserialize_with = "deserialize_required_field")]
     #[serde(rename = "id")]
@@ -1399,6 +1448,7 @@ pub type ListUsersQueryField0 = i64;
 pub type ListUsersQueryField1 = String;
 pub type ListUsersResponseItem = User;
 pub type NewApplicationOwnersItem = NewOwner;
+pub type ReadDocumentContentParamsField0 = String;
 pub type ReportBrowserErrorRequestBody = BrowserErrorReport;
 pub type RequestDocumentUploadParamsField0 = String;
 pub type RequestDocumentUploadRequestBody = NewDocument;
@@ -2046,6 +2096,38 @@ pub enum DownloadDocumentResponses {
     Status502(Box<EndpointFailure>),
     Status503(Box<EndpointFailure>),
 }
+#[derive(Default, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct ReadDocumentContentRequest {
+    pub params: ReadDocumentContentParams,
+    pub query: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for ReadDocumentContentRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadDocumentContentRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum ReadDocumentContentResponses {
+    Status200(SdkResponseWithHeaders<Vec<u8>, ReadDocumentContentResponseHeaders>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
 #[derive(Default, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct GetHealthRequest {
     pub headers: BTreeMap<String, String>,
@@ -2123,6 +2205,36 @@ impl fmt::Debug for GetLivenessRequest {
 #[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
 pub enum GetLivenessResponses {
     Status200(Box<HealthResponse>),
+    Status400(Box<EndpointFailure>),
+    Status401(Box<EndpointFailure>),
+    Status403(Box<EndpointFailure>),
+    Status404(Box<EndpointFailure>),
+    Status408(Box<EndpointFailure>),
+    Status409(Box<EndpointFailure>),
+    Status413(Box<EndpointFailure>),
+    Status415(Box<EndpointFailure>),
+    Status429(Box<EndpointFailure>),
+    Status500(Box<EndpointFailure>),
+    Status502(Box<EndpointFailure>),
+    Status503(Box<EndpointFailure>),
+}
+#[derive(Default, Clone, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+pub struct GetClientSettingsRequest {
+    pub headers: BTreeMap<String, String>,
+}
+impl fmt::Debug for GetClientSettingsRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("GetClientSettingsRequest")
+            .field("params", &"<redacted>")
+            .field("query", &"<redacted>")
+            .field("headers", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone, PartialEq, ::serde::Serialize, ::serde::Deserialize)]
+pub enum GetClientSettingsResponses {
+    Status200(Box<ClientSettingsResponse>),
     Status400(Box<EndpointFailure>),
     Status401(Box<EndpointFailure>),
     Status403(Box<EndpointFailure>),
