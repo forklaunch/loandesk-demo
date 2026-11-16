@@ -31,5 +31,7 @@ ADD --chmod=0644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.p
 RUN chmod 0755 /app/certs
 COPY --from=builder /app/out/api /app/bin/api
 COPY --from=builder /app/out/extraction /app/bin/extraction
-ENV HOST=0.0.0.0 PROTOCOL=http PORT=8000 VERSION=v1 DOCS_PATH=/docs
+# RUST_LOG is required at startup and the platform does not set it; a stored
+# value or the Compose file overrides this default.
+ENV HOST=0.0.0.0 PROTOCOL=http PORT=8000 VERSION=v1 DOCS_PATH=/docs RUST_LOG=info
 USER 65532:65532
