@@ -115,7 +115,10 @@ each control is enforced. In short:
   (`lifecycle.rs`): the retention purge, stale accounts, and the access-review
   and key-rotation reminders.
 - `src/shared` – risk formulas, the figure parser, and what an error may say in a log.
-- `frontend` – React + TypeScript (Vite), served by nginx. Errors caught in the
+- `frontend` – React + TypeScript (Vite), served by nginx in the Compose stack. Its build is also
+  committed as `src/api/web-dist` and compiled into the API, which serves it wherever there is no
+  web server in front (`docs/hosting.md`); after changing the front end run
+  `npm run build:embed` in `frontend/` and commit the result. Errors caught in the
   browser are reported to `POST /api/client-errors` (class and stack frames
   only, never the message) and logged as `browser_error`.
 - `src/core`, `src/monitoring`, `src/client-sdk` – generated ForkLaunch
@@ -124,7 +127,7 @@ each control is enforced. In short:
   in any image. `src/monitoring` also holds the dashboards, collector config
   and alert rules, which are used.
 
-More: `docs/controls.md`, `docs/needs-a-person.md`, `docs/deployment.md`,
+More: `docs/controls.md`, `docs/needs-a-person.md`, `docs/deployment.md`, `docs/hosting.md`,
 `docs/migration.md`, `docs/data-classification.md` (classification and
 retention), `docs/data-sharing.md`, `docs/slo.md`, `docs/runbooks/`,
 `docs/adr/`, `CHANGELOG.md`.
@@ -190,7 +193,9 @@ refused. Uploads must be PDFs of at most 20 MB.
 Because names and purpose are encrypted, search matches them by whole word or
 by the first three or more letters of a word, not by any fragment.
 
-**The Compose stack is for one machine.** For a real deployment see
+**The Compose stack is for one machine.** For the public demo copy on ForkLaunch
+(`HOSTED_DEMO=true`: demo logins with a password of its own, HTTPS and TLS required, files up to
+4 MB sent through the API, a banner on every screen) see `docs/hosting.md`. For a real deployment see
 `docs/deployment.md`: with `APP_ENV=production` the API refuses to start with
 generated demo secrets, demo seeding, insecure cookies, a plaintext database
 connection or a non-HTTPS origin. With seeding off there are no users, so the

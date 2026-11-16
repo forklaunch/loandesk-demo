@@ -5,6 +5,8 @@ LoanDesk is a ForkLaunch application: `.forklaunch/manifest.toml` describes the 
 database, bucket, secrets, load balancer health checks, log shipping and scaling. The front end
 (`frontend/Dockerfile`) is a static site behind the same origin.
 
+A public demo copy with fictional data is a different thing from a deployment: `docs/hosting.md`.
+
 **Not done here:** no deployment has been made and no platform environment exists yet. Everything
 below is what a person has to set up.
 

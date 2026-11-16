@@ -6,6 +6,8 @@ Every pull request adds a line under "Unreleased"; a release moves them under a 
 ## [Unreleased]
 
 ### Changed
+- `DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT` and `WORKER_ALLOW_PLAINTEXT_DEVELOPMENT` may be left unset,
+  which means `false`. The image sets `RUST_LOG=info` unless told otherwise.
 - The backend runs on ForkLaunch: one Rust API service (`src/api`) with typed route contracts,
   and one Rust worker (`src/extraction`) on the ForkLaunch leased PostgreSQL queue.
 - Documents are uploaded straight to object storage with a short-lived, size-capped grant and
@@ -22,6 +24,11 @@ Every pull request adds a line under "Unreleased"; a release moves them under a 
 - Secrets for the local stack are generated on first start; none are in the repository.
 
 ### Added
+- Hosted demo mode (`HOSTED_DEMO=true`, `docs/hosting.md`): the API serves the front end itself
+  from `src/api/web-dist`, carries document files (`PUT`/`GET /api/documents/{id}/content`, 4 MB at
+  most), requires HTTPS, `Secure` cookies, a verified-TLS database connection and a demo password
+  other than the public one, and the front end shows a demo banner.
+- `GET /api/client-settings` (public): demo banner, upload route and size limit for the front end.
 - Two-factor sign-in (TOTP) under "Security"; required for admins when `APP_ENV=production`.
 - `Idempotency-Key` on application creation.
 - `GET /api/applications/{id}/export`.

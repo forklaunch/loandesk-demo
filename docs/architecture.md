@@ -10,7 +10,7 @@ browser ──> web (nginx: React app) ──/api/──> api (ForkLaunch, Rust/
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Web | `frontend/` | React + TypeScript (Vite), served by nginx. Proxies `/api/` to the API and `/storage/` to the object store. |
+| Web | `frontend/` | React + TypeScript (Vite), served by nginx. Proxies `/api/` to the API and `/storage/` to the object store. In a hosted demo there is no nginx: the API serves the same build from `src/api/web-dist` and carries files itself (`docs/hosting.md`). |
 | API | `src/api/` | ForkLaunch Rust service. Every route is a typed contract (`api/controllers/*`), bound to the session policy (`api/policy.rs`). |
 | Worker | `src/extraction/` | ForkLaunch leased-queue consumer. Reads a PDF from storage, extracts figures, saves them. Also runs the hourly housekeeping job (retention purge, stale accounts, reminders). |
 | Shared | `src/shared/` | Risk formulas, figure parser, object-key layout, demo PDF writer. |
@@ -32,6 +32,9 @@ one key, `application/pdf` and 20 MB) -> browser posts the file to storage -> co
 size and the `%PDF-` signature, marks it `pending` and enqueues the job in one transaction) ->
 worker -> `done` or `failed`. Downloads use a 60-second signed link, issued after the audit entry.
 The API never holds a file: on completion it reads only the first chunk, to check the signature.
+The exception is a hosted demo (`HOSTED_DEMO=true`, `docs/hosting.md`), where the browser has no
+route to storage: the file (4 MB at most) is sent to and read from the API, between the same two
+steps and with the same checks, and the body limit in step 2 above is 4 MiB instead of 2.
 The worker reads a file into memory to parse it, and stops at the 20 MB upload limit.
 
 ## Data

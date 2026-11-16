@@ -208,6 +208,21 @@ fn development_tools_are_not_production_dependencies() {
         "the web image carries only the built bundle"
     );
     assert!(!dockerfile.split("FROM ").last().unwrap_or("").contains("node_modules"));
+    // The API also carries that bundle, for deployments with no web server
+    // in front of it (docs/hosting.md). The Rust image has no Node, so the
+    // bundle is committed and CI checks it is the build of the current source.
+    assert!(package["scripts"]["build:embed"].as_str().is_some_and(|script| {
+        script.contains("tsc --noEmit") && script.contains("--outDir ../src/api/web-dist")
+    }));
+    assert!(exists("src/api/web-dist/index.html"), "run `npm run build:embed` in frontend/");
+    assert!(read("src/api/api/web.rs").contains("include_dir!(\"$CARGO_MANIFEST_DIR/web-dist\")"));
+    let checks = read(".github/workflows/checks.yml");
+    assert!(
+        checks.contains("npm run build:embed")
+            && checks.contains("git diff --exit-code -- ../src/api/web-dist"),
+        "CI no longer checks that the embedded front end is current"
+    );
+    assert!(!read("Dockerfile.rust").to_lowercase().contains("npm "), "the Rust image has no Node");
     // The Rust image copies two binaries into the runtime stage: no toolchain,
     // no test or build crates.
     let rust = read("Dockerfile.rust");
@@ -407,6 +422,16 @@ fn no_secrets_are_hardcoded_in_source() {
     //   monitoring configs). That store holds traces, metrics and logs only.
     assert!(compose.contains("DEMO_PASSWORD: ${DEMO_PASSWORD:-loandesk-demo-2026}"));
     assert!(read("src/api/config.rs").contains("demo logins would be seeded"));
+    // The public demo copy keeps demo logins but never that password: the
+    // constant in config.rs exists only to refuse it (docs/hosting.md).
+    let config = read("src/api/config.rs");
+    assert!(config.contains("pub const PUBLIC_DEMO_PASSWORD: &str = \"loandesk-demo-2026\";"));
+    assert!(config.contains("DEMO_PASSWORD is the public password from this repository"));
+    assert!(!compose.contains("HOSTED_DEMO"), "the local stack is never a hosted demo");
+    let hosting = read("docs/hosting.md");
+    for setting in ["HOSTED_DEMO", "DEMO_PASSWORD", "PUBLIC_ORIGIN", "DATABASE_URL", "S3_BUCKET"] {
+        assert!(hosting.contains(setting), "docs/hosting.md lost {setting}");
+    }
     // A secret scan runs on every pull request, over the whole history.
     let checks = read(".github/workflows/checks.yml");
     assert!(checks.contains("ghcr.io/gitleaks/gitleaks:") && checks.contains("fetch-depth: 0"));
@@ -446,6 +471,15 @@ fn tls_certificate_checks_are_never_turned_off() {
     assert!(config.contains("DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT must be false"));
     assert!(config.contains("S3_URL must be an https:// endpoint"));
     assert!(read("docs/deployment.md").contains("sslmode=verify-full"));
+    // A hosted demo refuses the same plaintext allowances, and unset means off.
+    assert!(config.contains(
+        "let mode = if self.production { \"in production\" } else { \"as a hosted demo\" };"
+    ));
+    assert!(
+        read("src/api/persistence/database.rs")
+            .contains("match allow.as_deref().unwrap_or(\"false\")")
+    );
+    assert!(read("docs/hosting.md").contains("sslmode=verify-full"));
     // The runtime image trusts the public CAs and the database provider's CA.
     let image = read("Dockerfile.rust");
     assert!(image.contains("ca-certificates") && image.contains("rds-global-bundle.pem"));
