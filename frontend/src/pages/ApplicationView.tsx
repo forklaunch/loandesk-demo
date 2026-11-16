@@ -1,5 +1,14 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { api, ApplicationDetail, date, DOC_TYPE_LABELS, downloadDocument, money, uploadDocument } from "../api";
+import {
+  api,
+  ApplicationDetail,
+  date,
+  DOC_TYPE_LABELS,
+  downloadDocument,
+  money,
+  uploadDocument,
+  uploadLimitHint,
+} from "../api";
 import { RiskBadge, StatusBadge } from "./ApplicationList";
 
 const DOC_STATUS: Record<string, string> = {
@@ -175,7 +184,7 @@ export default function ApplicationView({ id }: { id: string }) {
                       href="#download"
                       onClick={(e) => {
                         e.preventDefault();
-                        downloadDocument(d.id).catch((err: Error) => setError(err.message));
+                        downloadDocument(d.id, d.filename).catch((err: Error) => setError(err.message));
                       }}
                     >
                       {d.filename}
@@ -263,6 +272,7 @@ function UploadForm({ id, onDone }: { id: string; onDone: () => void }) {
       <button className="primary" disabled={busy}>
         {busy ? "Uploading…" : "Upload PDF"}
       </button>
+      <span className="muted small">{uploadLimitHint()}</span>
       {error && <div className="error">{error}</div>}
     </form>
   );
