@@ -21,7 +21,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version-file: frontend/.nvmrc
@@ -36,7 +36,7 @@ jobs:
     name: Generated TypeScript workspace dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -51,7 +51,7 @@ jobs:
     name: Rust dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo install cargo-audit --locked --version 0.22.2
       # Cargo.lock also lists crates that no LoanDesk binary contains (sqlx
       # locks its optional SQLite backend whether or not it is enabled). The
@@ -69,7 +69,7 @@ jobs:
     name: Rust test coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust 1.98.0 with coverage tools
         run: rustup toolchain install 1.98.0 --profile minimal --component llvm-tools-preview && rustup default 1.98.0
       - uses: Swatinem/rust-cache@v2
@@ -90,7 +90,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # The gitleaks binary, not gitleaks-action: the action needs a paid
@@ -106,7 +106,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - run: |
@@ -119,7 +119,7 @@ jobs:
     name: End to end (real database, object store and worker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Applies every migration to a fresh database, starts the whole stack
       # and waits for the health checks; fails if any service is unhealthy.
       - run: GIT_SHA=${{ github.sha }} docker compose up --build -d --wait

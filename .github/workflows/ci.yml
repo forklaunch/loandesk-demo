@@ -22,7 +22,7 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust 1.98.0
         run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt,clippy && rustup default 1.98.0
       - uses: Swatinem/rust-cache@v2
@@ -42,7 +42,7 @@ jobs:
     name: TypeScript
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Rust 1.98.0
         run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt,clippy && rustup default 1.98.0
       - uses: Swatinem/rust-cache@v2
@@ -71,7 +71,7 @@ jobs:
     name: Docker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Build only. The generated smoke test (.github/scripts/container-smoke.mjs)
       # starts each service with no database, and LoanDesk refuses to start
       # without its database and encryption settings. Starting the real images
