@@ -63,6 +63,71 @@ pub async fn migration_pool() -> Result<(sqlx::PgPool, Uuid)> {
     Ok((pool, tenant()?))
 }
 
+/// What is still missing from the schema this build expects, if anything:
+/// every versioned migration applied, and the worker queue's schema created.
+/// Read with the runtime role; a missing table simply means "not yet". The
+/// answer is safe to log (versions and SQLSTATE codes only).
+async fn schema_gap(pool: &sqlx::PgPool) -> Option<String> {
+    let expected =
+        sqlx::migrate!("./migrations").iter().map(|migration| migration.version).max().unwrap_or(0);
+    let applied: std::result::Result<Option<i64>, sqlx::Error> =
+        sqlx::query_scalar("SELECT max(version) FROM public._sqlx_migrations WHERE success")
+            .fetch_one(pool)
+            .await;
+    match applied {
+        Ok(Some(version)) if version >= expected => {}
+        Ok(version) => {
+            return Some(format!("migration {} of {expected} applied", version.unwrap_or(0)));
+        }
+        Err(error) => return Some(shared::logsafe::describe(&error)),
+    }
+    let queue: std::result::Result<bool, sqlx::Error> =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'fl_worker')")
+            .fetch_one(pool)
+            .await;
+    match queue {
+        Ok(true) => None,
+        Ok(false) => Some("the worker queue's schema is missing".to_owned()),
+        Err(error) => Some(shared::logsafe::describe(&error)),
+    }
+}
+
+/// The API never migrates. On the platform the schema is brought up by the
+/// worker's task (`extraction --migrate`), which can still be running when
+/// the API first starts, so startup waits for it: a check every two seconds
+/// for `SCHEMA_WAIT_SECONDS` (default 120), then an error, which ends the
+/// process so the platform starts it again.
+pub async fn wait_for_schema(pool: &sqlx::PgPool) -> Result<()> {
+    let limit: u64 = config::optional("SCHEMA_WAIT_SECONDS")?.unwrap_or(120);
+    let started = std::time::Instant::now();
+    let mut announced = false;
+    loop {
+        let Some(gap) = schema_gap(pool).await else {
+            return Ok(());
+        };
+        if started.elapsed().as_secs() >= limit {
+            tracing::error!(
+                event = "schema_not_ready",
+                missing = %gap,
+                "gave up waiting for the database schema"
+            );
+            return Err(AppError::Storage(
+                "the database schema is not migrated (run `extraction --migrate`)".into(),
+            ));
+        }
+        if !announced {
+            announced = true;
+            tracing::warn!(
+                event = "waiting_for_schema",
+                limit_seconds = limit,
+                missing = %gap,
+                "the database schema is not migrated yet; waiting for the migration to finish"
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
 /// The last migration that only adds (columns, tables, indexes). Later ones
 /// remove what the one-time re-encryption has emptied, so `migrate` runs that
 /// re-encryption between the two groups.

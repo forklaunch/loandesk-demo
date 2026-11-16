@@ -358,7 +358,13 @@ impl Db {
             vault,
             statement_timeout_ms: config.statement_timeout_ms,
         };
-        // Migration ownership is explicit; startup never silently creates storage.
+        // Migration ownership is explicit; startup never silently creates
+        // storage. The schema may still be on its way (the worker's task
+        // migrates), so wait for it before the first query that needs it.
+        if let Err(error) = super::database::wait_for_schema(&db.pool).await {
+            db.close().await;
+            return Err(error);
+        }
         if let Err(error) = db.ping().await {
             db.close().await;
             return Err(error);

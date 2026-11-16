@@ -130,12 +130,12 @@
         "sha256": "4d3ceb9617bcf268f886a33a01c8d446f6263b19bc9fe71c75b9cd32c3418c88"
       },
       ".forklaunch/manifest.toml": {
-        "bytes": 2314,
-        "sha256": "eda6aaad5f1ed6598edc4d976e4fcf80b1c9d782ebf7c790b6ac9ce6264485f5"
+        "bytes": 2319,
+        "sha256": "416758e9e59301949fb23b7643bf73bb75159d832334087118228e11798149be"
       },
       "Cargo.lock": {
-        "bytes": 131131,
-        "sha256": "4bda4442508f20918a9e174fd61b94325883f1dc5192664769b9acfdf618708a"
+        "bytes": 131139,
+        "sha256": "a9f081b1de339feb6b78e6f12e13516104406fdd77cbfa0ab05bffc5757eeea1"
       },
       "Cargo.toml": {
         "bytes": 297,
@@ -326,8 +326,8 @@
         "sha256": "df81ea9047583967bb9faaaed574672c45d03a1b713d978b7bb76e37771267cd"
       },
       "src/api/persistence/database.rs": {
-        "bytes": 5529,
-        "sha256": "822df69b3539e0d922bba32b2ccabdc927713ba28989744ec554efec96fe92de"
+        "bytes": 8343,
+        "sha256": "a8d143781b09847c0704da9089a9fc9bd823e7f12458a7182a1195bdd24f98d2"
       },
       "src/api/persistence/entities/application.rs": {
         "bytes": 2392,
@@ -362,8 +362,8 @@
         "sha256": "a9e02969bcc1f246ae376c87eb9a654c4c9de4d4d58508799130346651fd9845"
       },
       "src/api/persistence/repository.rs": {
-        "bytes": 20092,
-        "sha256": "ab9d7d2de2e39c50db9b8252f417c5b3f0aeb538bbeccd640596a15dbbb0f12e"
+        "bytes": 20382,
+        "sha256": "5db99a2326c0c46f4d2f841daac8ad6344658eece8dc1aa9def1a9c1fe6503ec"
       },
       "src/api/persistence/rotation.rs": {
         "bytes": 26600,

@@ -1532,6 +1532,7 @@ dependencies = [
 name = "extraction"
 version = "0.1.0"
 dependencies = [
+ "api",
  "axum",
  "extraction-contracts",
  "forklaunch-axum",
