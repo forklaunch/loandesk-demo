@@ -125,11 +125,46 @@ fn csv_values(value: &str) -> Vec<String> {
     value.split(',').map(str::trim).filter(|part| !part.is_empty()).map(str::to_string).collect()
 }
 
+/// The demo sign-in password in this public repository (the Compose default
+/// for `DEMO_PASSWORD`, printed in the README). Fine on a laptop; a copy that
+/// is reachable from the internet must never accept it.
+pub const PUBLIC_DEMO_PASSWORD: &str = "loandesk-demo-2026";
+
+/// Largest PDF the hosted demo accepts. Its files travel through the API, and
+/// the gateway in front of it refuses request bodies above about 4.5 MB.
+pub const HOSTED_DEMO_MAX_UPLOAD_BYTES: u64 = 4 * 1024 * 1024;
+
+/// What `DEMO_PASSWORD` holds, without keeping the password itself in a
+/// structure that can be printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DemoPassword {
+    Unset,
+    /// [`PUBLIC_DEMO_PASSWORD`].
+    PublicDefault,
+    Supplied,
+}
+
+impl DemoPassword {
+    fn of(value: Option<&str>) -> Self {
+        match value {
+            None | Some("") => Self::Unset,
+            Some(PUBLIC_DEMO_PASSWORD) => Self::PublicDefault,
+            Some(_) => Self::Supplied,
+        }
+    }
+}
+
 /// LoanDesk's own settings, beside the framework's service settings above.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     /// `APP_ENV=production` turns every local-demo allowance into a startup error.
     pub production: bool,
+    /// `HOSTED_DEMO=true`: a copy with fictional data on a public address. It
+    /// keeps the seeded demo logins and gives up every other local allowance;
+    /// the API serves the front end and carries document files itself, and the
+    /// front end shows the demo banner. Never valid together with production.
+    pub hosted_demo: bool,
+    pub demo_password: DemoPassword,
     /// Session cookies are marked `Secure` and HSTS is sent. Required in production.
     pub cookie_secure: bool,
     pub session_hours: i32,
@@ -171,9 +206,14 @@ fn flag(name: &str) -> Result<Option<bool>> {
 impl Settings {
     pub fn from_env() -> Result<Self> {
         let production = config::optional::<String>("APP_ENV")?.as_deref() == Some("production");
+        let hosted_demo = flag("HOSTED_DEMO")?.unwrap_or(false);
         Ok(Self {
             production,
-            cookie_secure: flag("COOKIE_SECURE")?.unwrap_or(production),
+            hosted_demo,
+            demo_password: DemoPassword::of(
+                config::optional::<String>("DEMO_PASSWORD")?.as_deref(),
+            ),
+            cookie_secure: flag("COOKIE_SECURE")?.unwrap_or(production || hosted_demo),
             session_hours: config::optional("SESSION_HOURS")?.unwrap_or(8),
             seed_demo: flag("SEED_DEMO_DATA")?.unwrap_or(false),
             mfa_required_for_admins: flag("MFA_REQUIRED_FOR_ADMINS")?.unwrap_or(production),
@@ -193,7 +233,9 @@ impl Settings {
     }
 
     /// Everything that is acceptable on a laptop and not in a deployment is
-    /// refused here, at startup, when `APP_ENV=production`.
+    /// refused here, at startup, when `APP_ENV=production`. `HOSTED_DEMO=true`
+    /// refuses the same things except the seeded demo logins, and refuses the
+    /// public demo password.
     pub fn validate(&self, service: &ServiceConfig, plaintext_database: bool) -> Result<()> {
         if !(1..=24).contains(&self.session_hours) {
             return Err(AppError::InvalidConfig("SESSION_HOURS must be between 1 and 24".into()));
@@ -218,17 +260,39 @@ impl Settings {
                 return Err(AppError::InvalidConfig(format!("{name} must be between 1 and 3650")));
             }
         }
-        if !self.production {
+        if self.production && self.hosted_demo {
+            return Err(AppError::InvalidConfig(
+                "refusing to start in production: HOSTED_DEMO is set (a hosted demo seeds demo logins; it is never a production deployment)"
+                    .into(),
+            ));
+        }
+        if !self.production && !self.hosted_demo {
             return Ok(());
         }
+        let mode = if self.production { "in production" } else { "as a hosted demo" };
         let refuse = |reason: &str| {
-            Err(AppError::InvalidConfig(format!("refusing to start in production: {reason}")))
+            Err(AppError::InvalidConfig(format!("refusing to start {mode}: {reason}")))
         };
         if self.demo_secrets {
             return refuse("the generated local-demo secrets are in use (DEMO_SECRETS)");
         }
-        if self.seed_demo {
+        if self.production && self.seed_demo {
             return refuse("demo logins would be seeded (unset SEED_DEMO_DATA)");
+        }
+        if self.hosted_demo {
+            // The repository's demo password is public. A hosted copy is given
+            // its own, and nothing falls back to the public one.
+            match self.demo_password {
+                DemoPassword::PublicDefault => {
+                    return refuse(
+                        "DEMO_PASSWORD is the public password from this repository; set a different one",
+                    );
+                }
+                DemoPassword::Unset if self.seed_demo => {
+                    return refuse("SEED_DEMO_DATA is on and DEMO_PASSWORD is not set");
+                }
+                DemoPassword::Unset | DemoPassword::Supplied => {}
+            }
         }
         if !self.cookie_secure {
             return refuse("COOKIE_SECURE must be true (serve over HTTPS)");
@@ -248,9 +312,25 @@ impl Settings {
     }
 
     /// The OpenAPI document and its browser UI describe every route. They are
-    /// a development aid: served everywhere except production.
+    /// a development aid: not served in production or by a hosted demo.
     pub const fn serves_api_docs(&self) -> bool {
-        !self.production
+        !self.production && !self.hosted_demo
+    }
+
+    /// A hosted demo has no proxy in front of object storage, so document
+    /// files are sent to and read from the API. Everywhere else the browser
+    /// exchanges them with storage directly, on a short-lived grant.
+    pub const fn documents_through_api(&self) -> bool {
+        self.hosted_demo
+    }
+
+    /// Largest PDF accepted: 20 MB, or 4 MB where files travel through the API.
+    pub const fn max_upload_bytes(&self) -> u64 {
+        if self.hosted_demo {
+            HOSTED_DEMO_MAX_UPLOAD_BYTES
+        } else {
+            shared::storage::MAX_UPLOAD_BYTES
+        }
     }
 }
 
@@ -277,6 +357,8 @@ mod tests {
             seed_demo: false,
             mfa_required_for_admins: false,
             demo_secrets: false,
+            hosted_demo: false,
+            demo_password: DemoPassword::Unset,
             rate_limit_login_per_minute: 60,
             rate_limit_requests_per_minute: 600,
             rate_limit_expensive_per_minute: 60,
@@ -290,6 +372,74 @@ mod tests {
             public_origin: Some("https://loandesk.example".into()),
             ..ServiceConfig::default()
         }
+    }
+
+    /// What the platform gives the hosted copy: its own password, seeding on.
+    fn hosted() -> Settings {
+        Settings {
+            hosted_demo: true,
+            cookie_secure: true,
+            seed_demo: true,
+            demo_password: DemoPassword::Supplied,
+            ..limits()
+        }
+    }
+
+    #[test]
+    fn a_hosted_demo_keeps_its_demo_logins_and_gives_up_every_other_allowance() {
+        assert!(hosted().validate(&https(), false).is_ok());
+        assert!(hosted().validate(&ServiceConfig::default(), false).is_err(), "http origin");
+        assert!(Settings { cookie_secure: false, ..hosted() }.validate(&https(), false).is_err());
+        assert!(Settings { demo_secrets: true, ..hosted() }.validate(&https(), false).is_err());
+        assert!(hosted().validate(&https(), true).is_err(), "plaintext database connection");
+        let store =
+            Settings { object_store_url: Some("http://object-store:9000".into()), ..hosted() };
+        assert!(store.validate(&https(), false).is_err(), "plaintext object store");
+        // Never together with production, which refuses demo logins outright.
+        assert!(Settings { production: true, ..hosted() }.validate(&https(), false).is_err());
+        assert!(
+            Settings { production: true, seed_demo: false, ..hosted() }
+                .validate(&https(), false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_hosted_demo_never_accepts_the_public_demo_password() {
+        assert_eq!(DemoPassword::of(Some(PUBLIC_DEMO_PASSWORD)), DemoPassword::PublicDefault);
+        assert_eq!(DemoPassword::of(Some("a-password-of-its-own")), DemoPassword::Supplied);
+        assert_eq!(DemoPassword::of(Some("")), DemoPassword::Unset);
+        assert_eq!(DemoPassword::of(None), DemoPassword::Unset);
+        let with = |demo_password| Settings { demo_password, ..hosted() };
+        assert!(with(DemoPassword::PublicDefault).validate(&https(), false).is_err());
+        assert!(
+            with(DemoPassword::Unset).validate(&https(), false).is_err(),
+            "nothing to seed with"
+        );
+        // Refused even when nothing would be seeded with it.
+        assert!(
+            Settings { seed_demo: false, ..with(DemoPassword::PublicDefault) }
+                .validate(&https(), false)
+                .is_err()
+        );
+        assert!(
+            Settings { seed_demo: false, ..with(DemoPassword::Unset) }
+                .validate(&https(), false)
+                .is_ok()
+        );
+        // The local stack still runs on the documented password.
+        let local = Settings { seed_demo: true, ..with(DemoPassword::PublicDefault) };
+        assert!(Settings { hosted_demo: false, ..local }.validate(&https(), true).is_ok());
+    }
+
+    #[test]
+    fn a_hosted_demo_serves_no_api_docs_and_carries_small_files_itself() {
+        assert!(!hosted().serves_api_docs());
+        assert!(hosted().documents_through_api());
+        assert_eq!(hosted().max_upload_bytes(), 4 * 1024 * 1024);
+        assert!(!limits().documents_through_api());
+        assert_eq!(limits().max_upload_bytes(), 20 * 1024 * 1024);
+        assert!(!production().documents_through_api());
     }
 
     #[test]

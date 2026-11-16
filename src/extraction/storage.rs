@@ -16,8 +16,12 @@ pub fn endpoint_allowed(url: Option<&str>, plaintext_development: bool) -> bool 
 }
 
 pub async fn object_store() -> FrameworkResult<AwsS3ObjectStore> {
-    let plaintext_development =
-        config::required::<String>("WORKER_ALLOW_PLAINTEXT_DEVELOPMENT")? == "true";
+    let plaintext_development = crate::events::plaintext_development_allowed().map_err(|_| {
+        FrameworkError::new(
+            "invalid_worker_configuration",
+            "WORKER_ALLOW_PLAINTEXT_DEVELOPMENT must be true or false, and false in a hosted demo",
+        )
+    })?;
     let url = config::optional::<String>("S3_URL")?.filter(|url| !url.trim().is_empty());
     if !endpoint_allowed(url.as_deref(), plaintext_development) {
         return Err(FrameworkError::new(

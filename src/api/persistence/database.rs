@@ -15,10 +15,12 @@ pub struct DatabaseConfig {
 
 /// Plaintext database connections are an explicit local-development exception.
 /// The framework refuses a remote host without verified TLS unless it is set,
-/// and `Settings::validate` refuses to start in production when it is.
+/// and `Settings::validate` refuses to start in production, or as a hosted
+/// demo, when it is. Unset means `false`: a deployment that says nothing gets
+/// verified TLS.
 pub fn plaintext_development_allowed() -> Result<bool> {
-    let allow: String = config::required("DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT")?;
-    match allow.as_str() {
+    let allow: Option<String> = config::optional("DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT")?;
+    match allow.as_deref().unwrap_or("false") {
         "false" => Ok(false),
         "true" => Ok(true),
         _ => Err(AppError::InvalidConfig(

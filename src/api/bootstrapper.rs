@@ -61,7 +61,13 @@ async fn start(arguments: Vec<String>) -> ApplicationResult {
         service = "api",
         version = %version(),
         port = listener.local_addr()?.port(),
-        environment = if state.settings.production { "production" } else { "development" },
+        environment = if state.settings.production {
+            "production"
+        } else if state.settings.hosted_demo {
+            "hosted-demo"
+        } else {
+            "development"
+        },
         "LoanDesk API listening"
     );
     let stopping = Shutdown::new();

@@ -65,16 +65,33 @@ fn boundary() -> BlueprintResult<EventBoundary> {
         queue: config::required("WORKER_QUEUE")?,
     })
 }
-/// Transport admission is separate from payload encryption. Remote brokers
-/// require verified TLS unless the required `WORKER_ALLOW_PLAINTEXT_DEVELOPMENT`
-/// explicitly selects local development.
-pub fn transport_policy() -> BlueprintResult<BrokerTransportPolicy> {
-    let allow: String = config::required("WORKER_ALLOW_PLAINTEXT_DEVELOPMENT")?;
-    match allow.as_str() {
-        "true" => Ok(BrokerTransportPolicy::PlaintextDevelopment),
-        "false" => Ok(BrokerTransportPolicy::default()),
-        _ => Err(rejected()),
+/// Whether `WORKER_ALLOW_PLAINTEXT_DEVELOPMENT` selects local development.
+/// Unset means `false` (the platform never sets it), and a hosted demo
+/// (`HOSTED_DEMO=true`) refuses `true` as the API does.
+pub fn plaintext_development(allow: Option<&str>, hosted_demo: Option<&str>) -> Option<bool> {
+    match (allow.unwrap_or("false"), hosted_demo.unwrap_or("false")) {
+        ("false", "" | "false" | "0" | "true" | "1") => Some(false),
+        ("true", "" | "false" | "0") => Some(true),
+        _ => None,
     }
+}
+
+/// `plaintext_development` for this process's environment.
+pub fn plaintext_development_allowed() -> BlueprintResult<bool> {
+    let allow: Option<String> = config::optional("WORKER_ALLOW_PLAINTEXT_DEVELOPMENT")?;
+    let hosted: Option<String> = config::optional("HOSTED_DEMO")?;
+    plaintext_development(allow.as_deref(), hosted.as_deref()).ok_or_else(rejected)
+}
+
+/// Transport admission is separate from payload encryption. Remote brokers
+/// require verified TLS unless `WORKER_ALLOW_PLAINTEXT_DEVELOPMENT` explicitly
+/// selects local development.
+pub fn transport_policy() -> BlueprintResult<BrokerTransportPolicy> {
+    Ok(if plaintext_development_allowed()? {
+        BrokerTransportPolicy::PlaintextDevelopment
+    } else {
+        BrokerTransportPolicy::default()
+    })
 }
 
 /// Fail startup before pulling work when key/tenant configuration is missing.
@@ -130,6 +147,17 @@ mod tests {
             tenant,
             queue: queue.into(),
         }
+    }
+    #[test]
+    fn plaintext_transport_is_off_unless_asked_for_and_never_on_in_a_hosted_demo() {
+        assert_eq!(plaintext_development(None, None), Some(false), "unset means verified TLS");
+        assert_eq!(plaintext_development(Some("false"), None), Some(false));
+        assert_eq!(plaintext_development(Some("true"), None), Some(true), "local Compose stack");
+        assert_eq!(plaintext_development(Some("true"), Some("false")), Some(true));
+        assert_eq!(plaintext_development(None, Some("true")), Some(false));
+        assert_eq!(plaintext_development(Some("true"), Some("true")), None, "refused");
+        assert_eq!(plaintext_development(Some("yes"), None), None);
+        assert_eq!(plaintext_development(Some("true"), Some("maybe")), None);
     }
     #[test]
     fn producer_rejects_revisions_outside_javascript_safe_range() {
