@@ -6,6 +6,11 @@ Every pull request adds a line under "Unreleased"; a release moves them under a 
 ## [Unreleased]
 
 ### Changed
+- The manifest projects are `loans-service` (the API) and `loans` (the worker), and the Compose
+  services `loans-service` and `loans-worker`, so the platform gives both one database. Crates and
+  binaries keep their names. `extraction --migrate` now applies the API's migrations too, and the
+  API waits for the schema at startup (`SCHEMA_WAIT_SECONDS`). Shared local settings moved from the
+  Compose file to `compose.backend.env`.
 - `DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT` and `WORKER_ALLOW_PLAINTEXT_DEVELOPMENT` may be left unset,
   which means `false`. The image sets `RUST_LOG=info` unless told otherwise.
 - The backend runs on ForkLaunch: one Rust API service (`src/api`) with typed route contracts,
