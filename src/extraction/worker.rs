@@ -60,6 +60,11 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         .await
         .map_err(|_| "Unable to connect to PostgreSQL")?;
     if args == ["--migrate"] {
+        // The whole schema, in order: the API's tables (the same code as
+        // `api --migrate`, with the schema-owner URL in MIGRATION_DATABASE_URL),
+        // then the queue's. On the platform the module migrates once, in this
+        // worker's task, and the API waits for it.
+        api::persistence::database::migrate().await?;
         PostgresWorkerQueue::migrate(&pool).await?;
         pool.close().await;
         return Ok(());

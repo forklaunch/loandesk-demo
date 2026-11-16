@@ -43,6 +43,8 @@ version = "1"
 
 [dependencies]
 shared = { path = "../shared" }
+# The worker's --migrate applies the API's migrations before the queue's.
+api = { path = "../api" }
 pdf-extract = "0.12"
 tracing = "0.1"
 opentelemetry = "0.33"
