@@ -59,6 +59,12 @@ x-backend-env: &backend-env
   WORKER_QUEUE: extraction
   WORKER_MAX_ATTEMPTS: "3"
   WORKER_BACKOFF_SECONDS: "5"
+  # Access housekeeping. DEMO DEFAULTS, to be confirmed by the access-control
+  # owner (docs/data-classification.md): an account unused for 90 days is
+  # stale and is disabled by the worker's scheduled job; an access review is
+  # due every 90 days.
+  ACCESS_STALE_DAYS: ${ACCESS_STALE_DAYS:-90}
+  ACCESS_REVIEW_INTERVAL_DAYS: ${ACCESS_REVIEW_INTERVAL_DAYS:-90}
   # Set to http://otel-collector:4318 together with `--profile observability`.
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=${APP_ENV:-development}
@@ -214,6 +220,11 @@ services:
       # Refused when APP_ENV=production.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-loandesk-demo-2026}
+      # Requests per minute: sign-in per client address, everything per user,
+      # and the expensive operations per user (src/api/api/rate_limit.rs).
+      RATE_LIMIT_LOGIN_PER_MINUTE: ${RATE_LIMIT_LOGIN_PER_MINUTE:-60}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-600}
+      RATE_LIMIT_EXPENSIVE_PER_MINUTE: ${RATE_LIMIT_EXPENSIVE_PER_MINUTE:-60}
     command: ["/app/bin/api"]
     depends_on:
       extraction-migrate:
@@ -251,6 +262,18 @@ services:
       WORKER_RETENTION_INTERVAL_MS: "60000"
       WORKER_RETENTION_BATCH_LIMIT: "100"
       WORKER_RETENTION_TIMEOUT_MS: "5000"
+      # Record retention, enforced by the worker's scheduled job
+      # (src/extraction/lifecycle.rs). DEMO DEFAULTS, to be confirmed by the
+      # records-retention owner: decided applications are deleted 7 years
+      # after the decision, undecided ones 3 years after creation, with their
+      # owners, documents and stored files. 0 keeps that record type.
+      RETENTION_DECIDED_APPLICATION_DAYS: ${RETENTION_DECIDED_APPLICATION_DAYS:-2555}
+      RETENTION_UNDECIDED_APPLICATION_DAYS: ${RETENTION_UNDECIDED_APPLICATION_DAYS:-1095}
+      RETENTION_UNFINISHED_UPLOAD_HOURS: ${RETENTION_UNFINISHED_UPLOAD_HOURS:-24}
+      LIFECYCLE_INTERVAL_SECONDS: ${LIFECYCLE_INTERVAL_SECONDS:-3600}
+      ACCESS_STALE_ACTION: ${ACCESS_STALE_ACTION:-disable}
+      # Warn when the active encryption key is older than this (demo default).
+      ENCRYPTION_KEY_MAX_AGE_DAYS: ${ENCRYPTION_KEY_MAX_AGE_DAYS:-365}
       WORKER_HTTP_ADDR: 0.0.0.0:8081
     command: ["/app/bin/extraction"]
     depends_on:
@@ -386,7 +409,7 @@ services:
   memcached:
     profiles: [observability]
     logging: *logging
-    image: memcached:1.6-alpine
+    image: memcached:1.6.39-alpine3.22
     environment: {}
     networks:
     - loandesk

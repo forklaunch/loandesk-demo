@@ -21,6 +21,31 @@ its error budget is being spent (group `loandesk-slo-burn`):
 | `LoanDeskErrorBudgetSlowBurn` | error ratio above 6 x 0.5% over both 6 hours and 30 minutes | 5% of the month's budget gone in six hours | page |
 | `LoanDeskErrorBudgetTrend` | error ratio above 1 x 0.5% over both 3 days and 6 hours | on course to miss the objective | ticket |
 
-The other groups hold threshold alerts for latency, the queue, dead letters, security events and
-browser errors. Who is paged (Alertmanager receiver, on-call rotation) is configured where the rules
-are loaded and is not decided in this repository.
+The other groups hold threshold alerts for latency, the queue, dead letters, dependency calls,
+security events (`docs/runbooks/security-events.md`), the scheduled job, the access review and key
+rotation reminders, panics and browser errors. Every alert is `severity: page` or `severity: ticket`;
+`src/monitoring/alerts/alertmanager.yaml` routes the first to the on-call receiver and the second
+to the team receiver. Which rotation and which channel those are is for the operating team to fill
+in (`docs/needs-a-person.md`).
+
+## Expected capacity
+
+`scripts/load-test.py` drives the main read paths (application list, one application with its
+personal fields decrypted, search over encrypted text) with four signed-in users at 8 requests a
+second each, and fails if any response is a server error, if the 95th percentile is over the
+1-second objective, or if the stack does not keep up. It runs in CI after the end-to-end checks.
+
+Measured on the local Compose stack (one API container limited to one CPU and 512 MB, PostgreSQL
+and MinIO beside it on a laptop), 2026-11-15:
+
+| | Requests | p50 | p95 |
+| --- | --- | --- | --- |
+| List | 469 | 5.5 ms | 15.4 ms |
+| One application | 150 | 11.5 ms | 36.5 ms |
+| Search | 21 | 6.5 ms | 39.9 ms |
+| All, 32 requests/s for 20 s | 640 | 6.6 ms | 24.7 ms |
+
+This is a floor the API is expected to hold, not its limit: the load stays inside the per-user
+rate limit (600 requests a minute), which caps what one user can ask for before hardware does.
+A lending team of some dozens of people is far below it. Capacity beyond this has not been
+measured.
