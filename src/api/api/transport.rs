@@ -7,9 +7,15 @@
 //!   user-facing error message and the session cookie;
 //! - adds HSTS and a restrictive Content-Security-Policy (the framework adds
 //!   nosniff, frame denial, no-referrer and no-store);
+//! - answers page requests (any `GET` outside the API's paths) with the
+//!   embedded front end and the page's own security headers (`api::web`), for
+//!   deployments with no web server in front of the API;
 //! - keeps the original CSRF backstop: state-changing requests must carry
 //!   `X-Requested-With: loandesk`, which browsers do not send cross-site.
-use crate::{api::rate_limit, registrations::AppState};
+use crate::{
+    api::{rate_limit, web},
+    registrations::AppState,
+};
 
 /// The public sign-in route, limited per client address in [`layer`].
 pub const LOGIN_PATH: &str = "/api/auth/login";
@@ -133,7 +139,13 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
         && !state.limits.login.allow(&rate_limit::client_address(
             request.headers().get("x-forwarded-for").and_then(|value| value.to_str().ok()),
         ));
-    let mut response = if login_refused {
+    // The front end is public and static. It is answered here, outside the
+    // framework's API boundary, whose origin check refuses a browser arriving
+    // from a link on another site.
+    let page = web::serves(&method, request.uri().path(), &state.config.docs_path);
+    let mut response = if page {
+        web::respond(request.uri().path())
+    } else if login_refused {
         tracing::warn!(
             parent: &span,
             event = "rate_limited",
@@ -180,13 +192,16 @@ pub async fn layer(State(state): State<AppState>, request: Request, next: Next) 
     if let Ok(value) = HeaderValue::from_str(&slot.request_id) {
         headers.insert("x-request-id", value);
     }
-    // API responses are JSON only: nothing may be loaded, framed or submitted from them.
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-        ),
-    );
+    // API responses are JSON or a file: nothing may be loaded, framed or
+    // submitted from them. Pages carry their own policy (`web::respond`).
+    if !page {
+        headers.insert(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            ),
+        );
+    }
     if state.settings.cookie_secure {
         headers.insert(
             header::STRICT_TRANSPORT_SECURITY,

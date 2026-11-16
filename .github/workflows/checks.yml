@@ -27,6 +27,13 @@ jobs:
           node-version-file: frontend/.nvmrc
       - run: npm ci
       - run: npm run build
+      # The API image is built without Node, so the build the API serves is
+      # committed (src/api/web-dist). It must be the build of this source.
+      - name: The front end embedded in the API is the committed one
+        run: |
+          npm run build:embed
+          git diff --exit-code -- ../src/api/web-dist
+          test -z "$(git ls-files --others --exclude-standard -- ../src/api/web-dist)"
       # Build tools included: a vulnerable bundler or dev server is still a risk
       # to whoever builds the app.
       - name: Known vulnerabilities in front-end dependencies
