@@ -8,6 +8,7 @@
 //! change they describe, so neither can happen without the other.
 use crate::{
     api::transport,
+    dependency_metrics::{POSTGRESQL, measured},
     error::{AppError, Result, storage},
     persistence::{
         database::DatabaseConfig,
@@ -25,6 +26,7 @@ use forklaunch_core::{
         protected::{
             AsyncComplianceAudit, ComplianceAccess, DisclosurePolicy, IndexNormalization,
             ProtectedContext, ProtectedField, ProtectedMember, ProtectedQuery,
+            migration::{MigrationAudit, MigrationKind, MigrationRequest},
         },
     },
 };
@@ -80,7 +82,41 @@ impl Members {
 pub struct Vault {
     tenant: Uuid,
     key: Arc<EnvelopeKey>,
+    /// `ENCRYPTION_KEY_ID`: the key every new value and search token is written under.
+    active_key_id: Arc<str>,
     pub members: Arc<Members>,
+}
+
+/// The search tokens a query must match. Rows written before a key rotation
+/// carry tokens under the previous key until `api --rotate-keys` has rebuilt
+/// them, so while a previous key is configured a search matches either set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryTokens {
+    pub active: Vec<String>,
+    pub previous: Option<Vec<String>>,
+}
+
+/// The id of the key a stored protected value was sealed under: the `<id>` of
+/// `v3.<id>.<nonce>.<ciphertext>`, also when that envelope is wrapped in a
+/// `pd1.` disclosure record (SSNs). `None` for anything else.
+pub fn stored_key_id(stored: &str) -> Option<String> {
+    use base64::Engine;
+    let inner = match stored.strip_prefix("pd1.") {
+        Some(encoded) => {
+            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded).ok()?;
+            let record: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+            record.get("ciphertext")?.as_str()?.to_owned()
+        }
+        None => stored.to_owned(),
+    };
+    let mut parts = inner.split('.');
+    matches!(parts.next()?, "v2" | "v3").then(|| parts.next().map(str::to_owned))?
+}
+
+/// The id of the key a search token was derived under (`bi1.<id>.<mac>`).
+pub fn token_key_id(token: &str) -> Option<&str> {
+    let mut parts = token.split('.');
+    (parts.next()? == "bi1").then(|| parts.next())?
 }
 
 #[derive(Clone)]
@@ -107,7 +143,81 @@ impl Vault {
             EnvelopeError::Configuration(error) => error.into(),
             _ => unavailable("encryption key"),
         })?;
-        Ok(Self { tenant, key: Arc::new(key), members: Arc::new(Members::resolve()?) })
+        let active_key_id: String = config::required("ENCRYPTION_KEY_ID")?;
+        Ok(Self {
+            tenant,
+            key: Arc::new(key),
+            active_key_id: active_key_id.into(),
+            members: Arc::new(Members::resolve()?),
+        })
+    }
+
+    /// A vault over explicit key material instead of the environment: the
+    /// active key and the previous keys that stay readable. Used by the
+    /// rotation tests; processes use [`Vault::from_env`].
+    pub fn with_keys(
+        tenant: Uuid,
+        namespace: &str,
+        active: (&str, [u8; 32]),
+        previous: Vec<(String, [u8; 32])>,
+    ) -> Result<Self> {
+        let profile =
+            EnvelopeProfile::new(namespace).map_err(|_| unavailable("encryption profile"))?;
+        let key =
+            EnvelopeKey::with_rotation(profile, active.0.to_owned(), active.1, previous, None)
+                .map_err(|_| unavailable("encryption key"))?;
+        Ok(Self {
+            tenant,
+            key: Arc::new(key),
+            active_key_id: active.0.into(),
+            members: Arc::new(Members::resolve()?),
+        })
+    }
+
+    pub fn active_key_id(&self) -> &str {
+        &self.active_key_id
+    }
+
+    /// Whether a stored value is already sealed under the active key.
+    pub fn is_current(&self, stored: &str) -> bool {
+        stored_key_id(stored).as_deref() == Some(self.active_key_id())
+    }
+
+    /// Re-seals one stored value under the active key, without changing what
+    /// it decrypts to or its disclosure projection (an SSN keeps its last
+    /// four). The old value is authenticated with the key it names, which must
+    /// still be configured as a previous key. The read and the rewrite are
+    /// both acknowledged by `log` before the new ciphertext is returned.
+    pub async fn rekey(
+        &self,
+        member: &ProtectedMember,
+        resource: Uuid,
+        stored: String,
+        operation: Uuid,
+        log: &(impl AsyncComplianceAudit + MigrationAudit),
+    ) -> Result<String> {
+        let context = self.context_for(resource)?;
+        let field = ProtectedField::from_ciphertext(member.clone(), stored)
+            .map_err(storage("load protected field"))?;
+        let plan = field
+            .prepare_migration(
+                MigrationRequest {
+                    source_key: &self.key,
+                    source_context: context,
+                    target_key: &self.key,
+                    target_context: context,
+                    target_member: member.clone(),
+                    operation_id: operation,
+                    kind: MigrationKind::Rotate,
+                    actor: "system:key-rotation",
+                    reason: "rotate-encryption-key",
+                },
+                log,
+                log,
+            )
+            .await
+            .map_err(storage("re-seal protected field"))?;
+        Ok(plan.replacement().ciphertext().to_owned())
     }
 
     fn context_for(&self, resource: Uuid) -> Result<ProtectedContext> {
@@ -139,7 +249,7 @@ impl Vault {
         ciphertext: String,
         actor: Uuid,
         reason: &'static str,
-        disclosures: &Disclosures,
+        disclosures: &dyn AsyncComplianceAudit,
     ) -> Result<String> {
         let field = ProtectedField::from_ciphertext(member.clone(), ciphertext)
             .map_err(storage("load protected field"))?;
@@ -168,15 +278,27 @@ impl Vault {
         Ok(disclosed.as_str().chars().filter(char::is_ascii_digit).collect())
     }
 
-    fn token(&self, word: &str) -> Result<String> {
-        self.members
+    /// HMAC-SHA-256 tokens of one word: under the active key first, then
+    /// under each previous key that is still configured. The HMAC key is
+    /// derived (HKDF) from the secret encryption key, the tenant and the
+    /// field's purpose, so a token cannot be computed, or a name guessed and
+    /// confirmed, without that secret.
+    fn tokens(&self, word: &str) -> Result<Vec<String>> {
+        let tokens = self
+            .members
             .search_token
             .query(&self.key, self.tenant, ProtectedQuery::Equal(word))
             .map_err(storage("derive search token"))?
             .values()
-            .first()
-            .cloned()
-            .ok_or_else(|| unavailable("derive search token"))
+            .to_vec();
+        if tokens.is_empty() {
+            return Err(unavailable("derive search token"));
+        }
+        Ok(tokens)
+    }
+
+    fn token(&self, word: &str) -> Result<String> {
+        Ok(self.tokens(word)?.swap_remove(0))
     }
 
     /// Keyed tokens stored beside encrypted text so it stays searchable by
@@ -202,16 +324,21 @@ impl Vault {
     }
 
     /// Tokens every match must contain, or `None` when the query has no usable word.
-    pub fn query_tokens(&self, query: &str) -> Result<Option<Vec<String>>> {
+    pub fn query_tokens(&self, query: &str) -> Result<Option<QueryTokens>> {
         let words = words(query);
         if words.is_empty() || words.len() > 8 {
             return Ok(None);
         }
-        words
-            .iter()
-            .map(|word| self.token(&word.chars().take(MAX_TOKEN_CHARS).collect::<String>()))
-            .collect::<Result<Vec<_>>>()
-            .map(Some)
+        let mut active = Vec::with_capacity(words.len());
+        let mut previous = Vec::with_capacity(words.len());
+        for word in &words {
+            let mut tokens =
+                self.tokens(&word.chars().take(MAX_TOKEN_CHARS).collect::<String>())?.into_iter();
+            active.extend(tokens.next());
+            previous.extend(tokens.next());
+        }
+        let previous = (previous.len() == words.len()).then_some(previous);
+        Ok(Some(QueryTokens { active, previous }))
     }
 }
 
@@ -255,9 +382,10 @@ impl Db {
     /// A transaction scoped to the tenant, with a statement timeout so one slow
     /// query cannot hold a connection indefinitely.
     pub async fn tx(&self) -> Result<Tx<'_>> {
-        let mut tx = begin_tenant_transaction(&self.pool, &self.context)
-            .await
-            .map_err(storage("begin transaction"))?;
+        let mut tx =
+            measured(POSTGRESQL, "begin", begin_tenant_transaction(&self.pool, &self.context))
+                .await
+                .map_err(storage("begin transaction"))?;
         sqlx::query("SELECT set_config('statement_timeout', $1, true)")
             .bind(self.statement_timeout_ms.to_string())
             .execute(&mut *tx)
@@ -276,9 +404,12 @@ impl Db {
                 .map_err(storage("readiness query"))?;
             tx.commit().await.map_err(storage("readiness query"))
         };
-        tokio::time::timeout(std::time::Duration::from_secs(2), check)
-            .await
-            .map_err(|_| unavailable("readiness query timed out"))?
+        measured(POSTGRESQL, "ping", async {
+            tokio::time::timeout(std::time::Duration::from_secs(2), check)
+                .await
+                .map_err(|_| unavailable("readiness query timed out"))?
+        })
+        .await
     }
 
     pub fn seal(
@@ -296,7 +427,7 @@ impl Db {
         ciphertext: String,
         actor: Uuid,
         reason: &'static str,
-        disclosures: &Disclosures,
+        disclosures: &dyn AsyncComplianceAudit,
     ) -> Result<String> {
         self.vault.reveal(member, resource, ciphertext, actor, reason, disclosures).await
     }
@@ -309,7 +440,7 @@ impl Db {
     ) -> Result<Vec<String>> {
         self.vault.index_tokens(texts)
     }
-    pub fn query_tokens(&self, query: &str) -> Result<Option<Vec<String>>> {
+    pub fn query_tokens(&self, query: &str) -> Result<Option<QueryTokens>> {
         self.vault.query_tokens(query)
     }
 

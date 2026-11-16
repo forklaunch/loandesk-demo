@@ -3,4 +3,7 @@ pub mod database;
 pub mod entities;
 pub mod legacy;
 mod repository;
-pub use repository::{Db, Disclosures, Members, Tx, Vault};
+pub mod rotation;
+pub use repository::{
+    Db, Disclosures, Members, QueryTokens, Tx, Vault, stored_key_id, token_key_id,
+};

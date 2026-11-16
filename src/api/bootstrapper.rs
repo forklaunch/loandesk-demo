@@ -42,8 +42,11 @@ async fn start(arguments: Vec<String>) -> ApplicationResult {
     if arguments == ["--migrate"] {
         return Ok(crate::persistence::database::migrate().await?);
     }
+    if arguments == ["--rotate-keys"] {
+        return Ok(crate::persistence::rotation::run().await?);
+    }
     if !arguments.is_empty() {
-        return Err("Expected no arguments, --migrate or gen-samples <dir>".into());
+        return Err("Expected no arguments, --migrate, --rotate-keys or gen-samples <dir>".into());
     }
     let mut config = ServiceConfig::from_env()?;
     config.validate()?;

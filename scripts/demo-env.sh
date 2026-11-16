@@ -10,6 +10,16 @@ db="postgresql:5432/loandesk"
 
 export DEMO_SECRETS=true
 export ENCRYPTION_KEY_HEX="$(cat $s/encryption_key_hex)"
+# After `demo-secrets rotate` the active key id and the previous key come from
+# the volume too (scripts/demo-secrets.sh); before that, from the Compose file.
+if [ -s $s/encryption_key_id ]; then
+  export ENCRYPTION_KEY_ID="$(cat $s/encryption_key_id)"
+fi
+if [ -s $s/encryption_previous_keys_json ]; then
+  export ENCRYPTION_PREVIOUS_KEYS_JSON="$(cat $s/encryption_previous_keys_json)"
+elif [ -s $s/encryption_key_id ]; then
+  unset ENCRYPTION_PREVIOUS_KEYS_JSON
+fi
 export S3_ACCESS_KEY_ID="$(cat $s/s3_access_key)"
 export S3_SECRET_ACCESS_KEY="$(cat $s/s3_secret_key)"
 export DATABASE_URL="postgresql://loandesk_app:$(cat $s/db_app_password)@$db"
