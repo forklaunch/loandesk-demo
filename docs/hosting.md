@@ -9,7 +9,118 @@ The platform facts below were read from `forklaunch-platform` at `origin/main` `
 (2026-11-16), mostly `src/modules/deployment-agent-worker/domain/services/pulumi-generator.service.ts`,
 `utils/native-runtime.util.ts`, `utils/object-store.util.ts` and `utils/microvm-compute.ts`.
 
-## What runs where
+## First deploy: both parts always on
+
+**Read this section first; it is newer than the rest of the page.** The first deploy runs both
+parts always on, on the shared ECS pool. Scale to zero for the API comes later; the sections below
+that describe it (the MicroVM, its 50-variable limit, its migration task) still hold for that later
+step, with the names and migration flow given here.
+
+### Names
+
+The platform gives a service and a worker one database and one pair of roles only when their
+components are named `<m>-service` and `<m>-worker`; the CLI names a worker project's component
+`<project>-worker`. So `.forklaunch/manifest.toml` has:
+
+| Manifest project | Release component | Binary | Directory |
+| --- | --- | --- | --- |
+| `loans-service` (Service) | `loans-service` | `/app/bin/api` | `src/api` |
+| `loans` (Worker) | `loans-worker` | `/app/bin/extraction` | `src/extraction` |
+
+Module `loans`: database `loans_database`, roles `loans_owner` and `loans_app` (with the
+application's prefix on a shared pool). Crates, binaries and directories kept their names; the
+Compose services are named after the components, because that is how the CLI matches them.
+
+### One migration, in the worker's task
+
+For a paired module the platform runs the migration once, as an init container of the worker's
+task: `/app/bin/extraction --migrate`, with the schema-owner URL in both `DATABASE_URL` and
+`MIGRATION_DATABASE_URL`. That command now brings up the whole schema: the API's migrations (the
+same code as `api --migrate`, which still works and is what Compose runs first), then the queue's.
+It needs the worker's `TENANT_ID` and `ENCRYPTION_*` settings, because it registers the active key.
+
+The API never migrates and may start first. At startup it checks every two seconds whether the
+schema is complete, for `SCHEMA_WAIT_SECONDS` (default 120, the length of the platform's health
+check start period), logs `waiting_for_schema` once, and then either starts or exits with an error
+so the platform starts it again.
+
+### One bucket for both
+
+The manifest declares the store once, on the API project, which makes `loans-service` its user.
+`loans-worker` becomes a user of the same store because the worker's Compose service names
+`S3_BUCKET` in its own `environment`: the CLI turns that into a requirement of type `object_store`
+scoped to `loans-worker`, and the platform adds every component with such a requirement to the
+store's users (`objectStoreConsumers`, `utils/object-store.util.ts`). Both then get `S3_BUCKET`,
+`S3_REGION` and a task-role grant on one bucket. Do not declare `object_store` on the worker
+project (the CLI would emit a second store, so a second bucket), and do not name `S3_BUCKET` in
+both Compose services (the CLI folds the two into one entry that names only the first).
+
+The CLI reads the `environment` of `loans-service` and `loans-worker` in `docker-compose.yaml` as
+the settings a deployment needs, with the Compose values as defaults. Everything that is only right
+on a laptop (plaintext allowances, the MinIO address, `APP_ENV`, `COOKIE_SECURE`) is therefore in
+`compose.backend.env`, which the CLI does not read. A test keeps it that way
+(`a_release_sees_one_module_one_bucket_and_no_local_settings`).
+
+### What to store before the first deploy
+
+Application scope (both parts must have the same value):
+
+| Variable | Example |
+| --- | --- |
+| `HOSTED_DEMO` | `true` |
+| `TENANT_ID` | `<a uuid>` |
+| `STORAGE_ENCRYPTION_NAMESPACE` | `loandesk-records` |
+| `ENCRYPTION_KEY_ID` | `primary` |
+| `ENCRYPTION_KEY_HEX` (secret) | `<64 hex digits: openssl rand -hex 32>` |
+| `ENCRYPTION_LEGACY_KEY_HEX` | `disabled` |
+| `WORKER_QUEUE` | `extraction` |
+| `WORKER_MAX_ATTEMPTS` | `3` |
+| `WORKER_BACKOFF_SECONDS` | `5` |
+
+`loans-service`: `DEMO_PASSWORD` (secret, 12+ characters, not the README's); `SEED_DEMO_DATA=true`
+(the release carries `true` as its default).
+
+`loans-worker`: nothing that is not already a default in the release (`WORKER_CONCURRENCY=2`,
+`WORKER_BATCH_SIZE=1`, `WORKER_POLL_MS=500`, `WORKER_LEASE_MS=60000`, `WORKER_RENEW_MS=20000`,
+`WORKER_DRAIN_MS=30000`, `WORKER_RETENTION_INTERVAL_MS=60000`, `WORKER_RETENTION_BATCH_LIMIT=100`,
+`WORKER_RETENTION_TIMEOUT_MS=5000`, `WORKER_HTTP_ADDR=0.0.0.0:8081`, the two
+`WORKER_*_RETENTION_SECONDS`). All of the first nine are required at startup: if the platform does
+not fill them from the release, store them with these values.
+
+Set by the platform: `DATABASE_URL`, `DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT=false`, `S3_BUCKET`,
+`S3_REGION`, `PUBLIC_ORIGIN` (service only), `NODE_ENV`, `OTEL_*`. Set by the image: `HOST`, `PORT`,
+`PROTOCOL`, `VERSION`, `DOCS_PATH`, `RUST_LOG`. Never store: `APP_ENV=production`, `DEMO_SECRETS`,
+`S3_URL`, `S3_PUBLIC_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `COOKIE_SECURE=false`, either
+`*_ALLOW_PLAINTEXT_DEVELOPMENT=true`.
+
+### What the CLI would send
+
+`forklaunch release create --dry-run --local --skip-sync --yes` (CLI 1.33.0, run on a copy of this
+repository with a placeholder application id; a dry run uploads nothing and writes
+`.forklaunch/release-manifest.json`) gives: components `loans-service` (`runtime: tokio`, binary
+`api`, `migrate: api --migrate` reading `MIGRATION_DATABASE_URL`) and `loans-worker` (`runtime:
+tokio`, binary `extraction`, `migrate: extraction --migrate` reading `DATABASE_URL`), both on
+`Dockerfile.rust`; one object store, `loans-service-storage`; `S3_BUCKET` and `S3_REGION` required
+by `loans-worker` with type `object_store`. `release create` also rewrites
+`src/api/sdk/typescript/openapi.json` (pretty-printed) and `provenance.json` in the working tree;
+restore them with `git checkout src/api/sdk` afterwards, or CI's "generated sources" step fails.
+
+### Not verified for this arrangement
+
+- Nothing was released or deployed. The pairing, the single migration and the shared bucket are
+  what the platform's generator and the CLI's dry run say; no stack was generated from this release.
+- Whether the deploy gate asks for values for requirements the release lists without a default
+  (`PUBLIC_ORIGIN`, `DATABASE_MAX_CONNECTIONS`, `DATABASE_STATEMENT_TIMEOUT_MS`, `DEMO_PASSWORD`,
+  `ACCESS_STALE_ACTION`, `ENCRYPTION_KEY_MAX_AGE_DAYS`). LoanDesk has defaults for all but
+  `DEMO_PASSWORD`; `PUBLIC_ORIGIN` is the platform's to set.
+- Whether the platform fills the worker's settings from the release's defaults.
+- The release lists a database resource per component (`loans-service-database` twice,
+  `loans-worker-database`); the generator derives the database from the module, not from these.
+- The CLI's own rename (`forklaunch change service/worker -N`) was not tried; the manifest was
+  edited by hand. `forklaunch sync` was not run against the renamed projects (the dry run used
+  `--skip-sync`): run a release with `--skip-sync` until that has been looked at.
+
+## What runs where (once the API scales to zero)
 
 | Part | Compute | Why |
 | --- | --- | --- |
@@ -73,7 +184,7 @@ or either `*_ALLOW_PLAINTEXT_DEVELOPMENT=true`.
 
 Example values are placeholders. Never commit or paste a real one.
 
-### `api` (scale to zero)
+### `loans-service` (binary `api`), once it scales to zero
 
 | Variable | Set by | Example | Notes |
 | --- | --- | --- | --- |
@@ -90,12 +201,11 @@ Example values are placeholders. Never commit or paste a real one.
 | `ENCRYPTION_KEY_ID` | Us | `primary` | Same value on both parts. |
 | `ENCRYPTION_KEY_HEX` | Us (secret) | `<64 hex digits: openssl rand -hex 32>` | Same value on both parts: the worker opens what the API seals. |
 | `ENCRYPTION_LEGACY_KEY_HEX` | Us | `disabled` | Same value on both parts. |
-| `S3_BUCKET`, `S3_REGION` | Us, for now | `<bucket>`, `us-west-2` | See "Bucket access from the API". |
-| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Us (secret), for now | | See "Bucket access from the API". |
+| `S3_BUCKET`, `S3_REGION` | Platform | | Credentials come from the component's role; see "Known gaps" for scale to zero. |
 | `WORKER_QUEUE` | Us | `extraction` | The API enqueues extraction jobs. Same value on both parts. |
 | `WORKER_MAX_ATTEMPTS`, `WORKER_BACKOFF_SECONDS` | Us | `3`, `5` | Same values on both parts. |
 
-That is about 37 variables, under the 50 a MicroVM image can carry before the platform switches to
+That is about 35 variables, under the 50 a MicroVM image can carry before the platform switches to
 delivering them in a file (which needs `/bin/sh`; the image has one). A MicroVM's environment is
 baked into its image at build time, so changing any value means a new deploy.
 
@@ -103,7 +213,7 @@ Optional, with defaults: `SESSION_HOURS` (8), `MFA_REQUIRED_FOR_ADMINS` (off), `
 (60 / 600 / 60 per minute), `DATABASE_MAX_CONNECTIONS` (10), `DATABASE_STATEMENT_TIMEOUT_MS`
 (10000), `ACCESS_STALE_DAYS` and `ACCESS_REVIEW_INTERVAL_DAYS` (90).
 
-### `extraction` (always on)
+### `loans-worker` (binary `extraction`, always on)
 
 | Variable | Set by | Example | Notes |
 | --- | --- | --- | --- |
@@ -129,6 +239,10 @@ by both parts, so store them at application scope by hand before the first deplo
 
 ## Migrations
 
+The module now migrates once, from the worker (`extraction --migrate` brings up the whole schema)
+and the API waits for it: see "First deploy" above. What follows describes the platform's
+scale-to-zero migration task as read from its code.
+
 For a scale-to-zero Rust service the platform runs the migration as a one-off task before it builds
 the MicroVM image (platform PR #1524): the same image, command `/app/bin/<binary> --migrate`, with
 the schema-owner URL in both `DATABASE_URL` and `MIGRATION_DATABASE_URL`, and the deploy fails if it
@@ -148,49 +262,16 @@ before the API's first start (see "Not verified").
 
 ## Known gaps on the platform side
 
-These were found by reading the platform's generator. Each one stops a first deploy from working
-until it is settled; none can be fixed from this repository alone.
+### Bucket access from a scale-to-zero API
 
-### Bucket access from the API
+Not a concern while both parts are always on: each ECS task role is granted the bucket. For scale
+to zero, a MicroVM's role could only write its log when this was written
+(`utils/microvm-compute.ts`); that is being fixed in the platform's generator, and once the fix is
+live the platform grants the scale-to-zero role the bucket. Nothing is worked around here.
 
-A scale-to-zero service gets `S3_BUCKET` and `S3_REGION`, but its MicroVM role may only write its
-log (`microvm-compute.ts`, "The running MicroVM's own role: it only writes its log"); the bucket
-grant goes to the ECS task role only, and the platform strips `S3_ACCESS_KEY_ID` /
-`S3_SECRET_ACCESS_KEY` from a component that uses a platform bucket. So with nothing else done, the
-API cannot reach the bucket: seeding fails at first start, and `/health` (which checks the bucket)
-reports not ready.
+### One database for two parts, and the worker's use of the bucket
 
-Until the platform grants the MicroVM role the bucket: create an IAM user limited to the demo's
-bucket (`s3:GetObject`, `s3:PutObject`, `s3:PutObjectTagging`, `s3:DeleteObject`, `s3:ListBucket`)
-and store its key as `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` on the `api` component. A
-component with a stored key "brings its own storage": the platform then leaves its `S3_*` alone, so
-`S3_BUCKET` and `S3_REGION` have to be stored for it too. LoanDesk reads static keys without
-`S3_URL` (the framework's `S3Environment`), which is this case.
-
-### One database for two parts
-
-The platform gives every component its own database (`<component>_database`) and its own pair of
-roles (`<module>_owner`, `<module>_app`), where a module is a service and the worker of the same
-name (`notes-service` + `notes-worker`). `api` and `extraction` are two modules to it. LoanDesk's
-worker is not a separate module in that sense: it takes jobs from, and writes figures to, the API's
-database (`documents`, `applications`, the queue tables).
-
-So as generated, the worker would get an empty database of its own and process nothing. Storing
-the same `DB_NAME` on both does not solve it by itself: each module's provisioning task makes its
-own owner role the owner of the database and of schema `public`, and the worker's app role gets no
-rights on tables the API's owner created.
-
-Options, for whoever owns the platform side: let a component bind to another component's database
-and runtime role; or rename the worker so the platform sees one module (`api` + `api-worker`),
-which is a rename across this repository; or run the worker on a hand-stored `DATABASE_URL` for the
-API's runtime role, if the platform keeps a stored value for a component with no database resource.
-
-### The worker and the bucket
-
-`.forklaunch/manifest.toml` declares `object_store = "s3"` for `api` only. The worker reads and
-deletes files, so it must be a consumer of the same bucket to get `S3_BUCKET`, `S3_REGION` and the
-task-role grant. How the CLI turns per-project resources into the release manifest's resource list
-(one bucket per resource name) was not checked; the manifest was left unchanged.
+Both settled in this repository: see "First deploy" above.
 
 ## Not verified
 
@@ -204,8 +285,6 @@ task-role grant. How the CLI turns per-project resources into the release manife
   binary body through as it is. If it base64-encodes bodies on the way to the MicroVM, 4 MiB becomes
   5.6 MB and the cap has to come down to about 3 MB (`HOSTED_DEMO_MAX_UPLOAD_BYTES` in
   `src/api/config.rs`).
-- That the worker's migration has run before the API first starts. If it has not, the API's first
-  start fails while seeding and succeeds on a later wake.
 - That `PUBLIC_ORIGIN` is the hostname people will use. If the demo gets a custom domain, the value
   must be that domain or every state-changing request is refused with "Origin denied".
 - Cold start. On a wake the API connects to PostgreSQL and the bucket before it listens; the wake
