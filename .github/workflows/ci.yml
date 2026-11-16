@@ -33,7 +33,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
       - name: Generated sources are committed
-        run: git diff --exit-code && test -z "$(git status --porcelain)"
+        run: |
+          # provenance.json records the build machine's platform, which differs
+          # between a laptop and this runner; every other difference fails.
+          git diff --exit-code -I '^ *"(host|target)": "[a-z0-9_-]+",$'
+          test -z "$(git ls-files --others --exclude-standard)"
   typescript:
     name: TypeScript
     runs-on: ubuntu-latest
@@ -58,7 +62,11 @@ jobs:
       - name: Test
         run: pnpm run test
       - name: Generated sources are committed
-        run: git diff --exit-code && test -z "$(git status --porcelain)"
+        run: |
+          # provenance.json records the build machine's platform, which differs
+          # between a laptop and this runner; every other difference fails.
+          git diff --exit-code -I '^ *"(host|target)": "[a-z0-9_-]+",$'
+          test -z "$(git ls-files --others --exclude-standard)"
   docker:
     name: Docker
     runs-on: ubuntu-latest

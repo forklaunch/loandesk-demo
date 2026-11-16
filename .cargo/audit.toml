@@ -1,0 +1,13 @@
+# Exceptions to `cargo audit`. Each one needs a reason and a way to notice when
+# the reason stops being true.
+[advisories]
+ignore = [
+  # libsqlite3-sys 0.37.0. Accepted 2026-11-16. The crate is in Cargo.lock only
+  # because sqlx 0.9.0 (the latest release) locks its optional SQLite backend
+  # whether or not it is enabled; LoanDesk enables only PostgreSQL, so no
+  # binary contains it. It cannot be upgraded from here: sqlx-sqlite 0.9.0
+  # requires libsqlite3-sys < 0.38 and the fix is in 0.39. The "not in the
+  # build" step in .github/workflows/checks.yml fails if the crate is ever
+  # compiled. Remove this entry when sqlx releases against a fixed version.
+  "RUSTSEC-2026-0459",
+]

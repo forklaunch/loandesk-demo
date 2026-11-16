@@ -134,13 +134,13 @@ or an organizational decision. **Partly** = true as far as stated, with the gap 
 
 `cargo audit`, `npm audit` and `pnpm audit` run in CI (`.github/workflows/checks.yml`).
 
-One advisory is open: RUSTSEC-2026-0459 against `libsqlite3-sys 0.37.0`. That crate is in
+One advisory is excepted: RUSTSEC-2026-0459 against `libsqlite3-sys 0.37.0`. That crate is in
 `Cargo.lock` because `sqlx` 0.9.0 (the latest release) locks its optional SQLite backend whether
 or not it is enabled. LoanDesk enables only the PostgreSQL backend: `cargo tree --workspace --target all -e all -i libsqlite3-sys`
 prints nothing, and CI fails if that ever changes. It cannot be upgraded from this repository
-(`sqlx-sqlite 0.9.0` requires that version) and it has not been silenced: `cargo audit` reports it
-and fails. Whether to accept it as a documented exception until `sqlx` releases a fix is in
-`docs/needs-a-person.md`.
+(`sqlx-sqlite 0.9.0` requires a version below the fixed one). The exception, its reason and when
+to remove it are in `.cargo/audit.toml`; it was accepted on 2026-11-16. `cargo audit` reports every
+other advisory and fails on it.
 
 ## Not done
 

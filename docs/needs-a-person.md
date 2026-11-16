@@ -14,7 +14,7 @@ repository, or an action only a named person can take. Nothing below has been do
 | 5 | **Access review interval and stale-account period** (demo defaults: every 90 days; disabled after 90 unused days). Set `ACCESS_REVIEW_INTERVAL_DAYS`, `ACCESS_STALE_DAYS`, `ACCESS_STALE_ACTION` | Access-control owner | The demo defaults are enforced |
 | 6 | **Key rotation period** (demo default: 365 days). Set `ENCRYPTION_KEY_MAX_AGE_DAYS` | Security owner | The worker warns after 365 days |
 | 7 | **Service level objectives** in `docs/slo.md` | The team that runs LoanDesk | Proposed values; the alerts use them |
-| 8 | **The open advisory** RUSTSEC-2026-0459 (`libsqlite3-sys`, in the lockfile but in no binary; `docs/controls.md`): accept it as a documented exception in `cargo audit` until `sqlx` ships a fix, or keep the dependency audit failing | Security owner | `cargo audit` reports it and fails; a CI step proves the crate is not built |
+| 8 | **The excepted advisory** RUSTSEC-2026-0459 (`libsqlite3-sys`, in the lockfile but in no binary; `docs/controls.md`): accepted as a documented exception on 2026-11-16. Remove the entry in `.cargo/audit.toml` when `sqlx` releases against a fixed version | Security owner | The fix has to come from `sqlx`; a CI step proves the crate is not built |
 | 9 | **Rate limits** (60 sign-ins a minute per address, 600 requests and 60 expensive operations a minute per user) against real usage | Engineering, after a week of production metrics | The defaults are enforced |
 
 ## Actions outside the repository

@@ -17,6 +17,10 @@ const docker = (...args) => execFileSync('docker', args, {encoding: 'utf8'}).tri
 const compose = JSON.parse(execFileSync('docker', ['compose', 'config', '--format', 'json',
   '--no-interpolate', '--no-env-resolution', '--no-path-resolution'], {encoding: 'utf8'}));
 const services = Object.entries(compose.services ?? {});
+// Compose is read without interpolation, so resolve `${NAME:-default}` in image
+// names here; Docker rejects a tag that still contains it.
+for (const [, service] of services) if (typeof service.image === 'string')
+  service.image = service.image.replace(/\$\{(\w+):-([^}]*)\}/g, (_, name, fallback) => process.env[name] || fallback);
 const built = services.filter(([, service]) => service.build &&
   (service.build.dockerfile ?? 'Dockerfile') === dockerfile && service.image);
 const images = new Set(built.map(([, service]) => service.image));
