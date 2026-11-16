@@ -72,10 +72,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Build and start Dockerfile.rust
-        run: node .github/scripts/container-smoke.mjs Dockerfile.rust
-      - name: Build and start Dockerfile.typescript
-        run: node .github/scripts/container-smoke.mjs Dockerfile.typescript
+      # Build only. The generated smoke test (.github/scripts/container-smoke.mjs)
+      # starts each service with no database, and LoanDesk refuses to start
+      # without its database and encryption settings. Starting the real images
+      # against a real database, object store and worker is the "End to end"
+      # job in checks.yml.
+      - name: Build Dockerfile.rust
+        run: docker build --progress=plain -f Dockerfile.rust -t loandesk-rust:local .
+      - name: Build Dockerfile.typescript
+        run: docker build --progress=plain -f Dockerfile.typescript .

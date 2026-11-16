@@ -408,7 +408,8 @@ fn no_secrets_are_hardcoded_in_source() {
     assert!(compose.contains("DEMO_PASSWORD: ${DEMO_PASSWORD:-loandesk-demo-2026}"));
     assert!(read("src/api/config.rs").contains("demo logins would be seeded"));
     // A secret scan runs on every pull request, over the whole history.
-    assert!(read(".github/workflows/checks.yml").contains("gitleaks/gitleaks-action"));
+    let checks = read(".github/workflows/checks.yml");
+    assert!(checks.contains("ghcr.io/gitleaks/gitleaks:") && checks.contains("fetch-depth: 0"));
 }
 
 #[test]

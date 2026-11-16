@@ -17,10 +17,16 @@ const docker = (...args) => execFileSync('docker', args, {encoding: 'utf8'}).tri
 const compose = JSON.parse(execFileSync('docker', ['compose', 'config', '--format', 'json',
   '--no-interpolate', '--no-env-resolution', '--no-path-resolution'], {encoding: 'utf8'}));
 const services = Object.entries(compose.services ?? {});
-// Compose is read without interpolation, so resolve `${NAME:-default}` in image
-// names here; Docker rejects a tag that still contains it.
-for (const [, service] of services) if (typeof service.image === 'string')
-  service.image = service.image.replace(/\$\{(\w+):-([^}]*)\}/g, (_, name, fallback) => process.env[name] || fallback);
+// Compose is read without interpolation, so resolve `${NAME:-default}` here in
+// the two places this script hands a value to Docker: image names and the HTTP
+// settings. Docker rejects a tag that still contains it, and the service
+// rejects a setting that does.
+const resolve = value => typeof value !== 'string' ? value
+  : value.replace(/\$\{(\w+):-([^}]*)\}/g, (_, name, fallback) => process.env[name] || fallback);
+for (const [, service] of services) {
+  service.image = resolve(service.image);
+  for (const key of Object.keys(service.environment ?? {})) service.environment[key] = resolve(service.environment[key]);
+}
 const built = services.filter(([, service]) => service.build &&
   (service.build.dockerfile ?? 'Dockerfile') === dockerfile && service.image);
 const images = new Set(built.map(([, service]) => service.image));

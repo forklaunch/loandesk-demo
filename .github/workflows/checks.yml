@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install cargo-audit --locked --version 0.21.2
+      - run: cargo install cargo-audit --locked --version 0.22.2
       # Cargo.lock also lists crates that no LoanDesk binary contains (sqlx
       # locks its optional SQLite backend whether or not it is enabled). The
       # one advisory against such a crate is excepted in .cargo/audit.toml;
