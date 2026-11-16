@@ -2907,6 +2907,160 @@ impl Client {
         }
     }
     /// Construct a transport request.
+    pub fn read_document_content_request(
+        &self,
+        input: ReadDocumentContentRequest,
+    ) -> Result<SdkRequest, serde_json::Error> {
+        let path = runtime::path_with_params(
+            "/api/documents/:id/content",
+            &runtime::request_fields(&input.params)?,
+        );
+        Ok(SdkRequest {
+            method: "GET",
+            url: format!("{}{}", self.runtime.base_url(), path),
+            query: input.query,
+            headers: input.headers,
+            body: None,
+            body_bytes: None,
+            multipart: None,
+            content_type: "application/json",
+        })
+    }
+    pub async fn read_document_content(
+        &self,
+        input: ReadDocumentContentRequest,
+    ) -> Result<ReadDocumentContentResponses, SdkError> {
+        let request = self
+            .read_document_content_request(input)
+            .map_err(SdkError::Encode)?;
+        let response = self.runtime.execute(request).await?;
+        let status = response.status().as_u16();
+        let _content_type = runtime::response_content_type(&response)?;
+        match status {
+            200 if _content_type == "application/pdf" => {
+                let headers = runtime::decode_response_headers::<
+                    ReadDocumentContentResponseHeaders,
+                >(response.headers(), schemas::READ_DOCUMENT_CONTENT_STATUS200_HEADERS)?;
+                let body = response.bytes().await?.to_vec();
+                Ok(
+                    ReadDocumentContentResponses::Status200(SdkResponseWithHeaders {
+                        body,
+                        headers,
+                    }),
+                )
+            }
+            400 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status400(body))
+            }
+            401 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status401(body))
+            }
+            403 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status403(body))
+            }
+            404 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status404(body))
+            }
+            408 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status408(body))
+            }
+            409 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status409(body))
+            }
+            413 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status413(body))
+            }
+            415 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status415(body))
+            }
+            429 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status429(body))
+            }
+            500 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status500(body))
+            }
+            502 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status502(body))
+            }
+            503 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(ReadDocumentContentResponses::Status503(body))
+            }
+            _ => Err(SdkError::Contract("undeclared response status or content type")),
+        }
+    }
+    /// Construct a transport request.
     #[must_use]
     pub fn get_health_request(&self, input: GetHealthRequest) -> SdkRequest {
         let path = runtime::path_with_params(
@@ -3358,6 +3512,163 @@ impl Client {
                     )
                     .await?;
                 Ok(GetLivenessResponses::Status503(body))
+            }
+            _ => Err(SdkError::Contract("undeclared response status or content type")),
+        }
+    }
+    /// Construct a transport request.
+    #[must_use]
+    pub fn get_client_settings_request(
+        &self,
+        input: GetClientSettingsRequest,
+    ) -> SdkRequest {
+        let path = runtime::path_with_params(
+            "/api/client-settings",
+            &::std::collections::BTreeMap::new(),
+        );
+        SdkRequest {
+            method: "GET",
+            url: format!("{}{}", self.runtime.base_url(), path),
+            query: ::std::collections::BTreeMap::new(),
+            headers: input.headers,
+            body: None,
+            body_bytes: None,
+            multipart: None,
+            content_type: "application/json",
+        }
+    }
+    /// Invoke this operation without request parameters or a body.
+    pub async fn get_client_settings(
+        &self,
+    ) -> Result<GetClientSettingsResponses, SdkError> {
+        self.get_client_settings_with_options(GetClientSettingsRequest::default()).await
+    }
+    /// Invoke this operation with per-request transport headers.
+    pub async fn get_client_settings_with_options(
+        &self,
+        input: GetClientSettingsRequest,
+    ) -> Result<GetClientSettingsResponses, SdkError> {
+        let request = self.get_client_settings_request(input);
+        let response = self.runtime.execute(request).await?;
+        let status = response.status().as_u16();
+        let _content_type = runtime::response_content_type(&response)?;
+        match status {
+            200 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::GET_CLIENT_SETTINGS_STATUS200_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status200(body))
+            }
+            400 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status400(body))
+            }
+            401 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status401(body))
+            }
+            403 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status403(body))
+            }
+            404 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status404(body))
+            }
+            408 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status408(body))
+            }
+            409 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status409(body))
+            }
+            413 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status413(body))
+            }
+            415 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status415(body))
+            }
+            429 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status429(body))
+            }
+            500 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status500(body))
+            }
+            502 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status502(body))
+            }
+            503 if _content_type == "application/json" => {
+                let body = runtime::decode_json_response(
+                        response,
+                        schemas::LIST_APPLICATIONS_STATUS400_BODY,
+                        None,
+                    )
+                    .await?;
+                Ok(GetClientSettingsResponses::Status503(body))
             }
             _ => Err(SdkError::Contract("undeclared response status or content type")),
         }
