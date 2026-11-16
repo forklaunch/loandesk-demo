@@ -1,9 +1,11 @@
 //! Object storage for uploaded PDFs.
 //!
-//! Files never pass through the API: the browser sends them to storage with a
+//! Files do not pass through the API: the browser sends them to storage with a
 //! short-lived grant that fixes the key, the content type and the maximum size,
-//! and reads them back through a short-lived signed link. Keys always start
-//! with the tenant's prefix, and every operation here checks that.
+//! and reads them back through a short-lived signed link. The one exception is
+//! the hosted demo, where the browser has no route to storage and the API
+//! carries small files itself (`put`, `get`). Keys always start with the
+//! tenant's prefix, and every operation here checks that.
 use crate::{
     dependency_metrics::{OBJECT_STORE, measured},
     error::{AppError, Result, storage},
@@ -134,7 +136,34 @@ impl DocumentStore {
         }))
     }
 
-    /// Server-side write, used for demo seeding and the legacy file migration.
+    /// The whole stored object, for the hosted demo's download through the
+    /// API. Refuses anything larger than `limit`.
+    pub async fn get(&self, key: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+        self.check_tenant(key)?;
+        let Some(mut download) = measured(OBJECT_STORE, "get", self.store.download(key))
+            .await
+            .map_err(storage("read stored object"))?
+        else {
+            return Ok(None);
+        };
+        let too_large = || AppError::Storage("stored object exceeds the download limit".into());
+        if download.content_length.is_some_and(|length| length > limit) {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) =
+            download.next_chunk().await.map_err(storage("read stored object"))?
+        {
+            if (bytes.len() + chunk.len()) as u64 > limit {
+                return Err(too_large());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(Some(bytes))
+    }
+
+    /// Server-side write, used for demo seeding, the legacy file migration and
+    /// the hosted demo's upload through the API.
     pub async fn put(&self, key: &str, bytes: Vec<u8>) -> Result<()> {
         self.check_tenant(key)?;
         let metadata = ObjectMetadata::new()

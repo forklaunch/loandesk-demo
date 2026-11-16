@@ -38,7 +38,9 @@ pub struct NewDocument {
 #[derive(Clone)]
 pub struct UploadGrant {
     pub id: String,
-    /// POST a multipart form here: every entry of `fields`, then the file as `file`.
+    /// POST a multipart form here: every entry of `fields`, then the file as
+    /// `file`. Where files travel through the API (`ClientSettingsResponse`), PUT the
+    /// PDF itself here instead; `fields` is then empty.
     pub url: String,
     pub fields: BTreeMap<String, String>,
     #[field(min = 1, max = 9007199254740991)]

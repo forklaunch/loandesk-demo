@@ -23,13 +23,14 @@ use std::{
 /// Route names (as declared in the contracts) that cost noticeably more than
 /// a lookup: they scan, decrypt many fields, sign storage grants or hash a
 /// password. `http.rs` checks that every name here is a real route.
-pub const EXPENSIVE_OPERATIONS: [&str; 10] = [
+pub const EXPENSIVE_OPERATIONS: [&str; 11] = [
     "Search Applications",
     "Export Application",
     "Reveal Owner SSN",
     "Request Document Upload",
     "Complete Document Upload",
     "Download Document",
+    "Read Document Content",
     "Create User",
     "Change Password",
     "Access Review",

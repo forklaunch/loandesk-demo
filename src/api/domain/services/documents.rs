@@ -10,12 +10,17 @@ use crate::{
     extraction_queue::ExtractionQueue,
     persistence::{Db, Disclosures},
 };
-use shared::storage::{MAX_DOCUMENTS_PER_APPLICATION, MAX_UPLOAD_BYTES, document_key};
+use shared::storage::{MAX_DOCUMENTS_PER_APPLICATION, document_key};
 use sqlx::Row;
 use uuid::Uuid;
 
 const DOC_TYPES: [&str; 3] = ["tax_return", "bank_statement", "financial_statement"];
-const TOO_LARGE: &str = "The file is too large (limit is 20 MB)";
+const NOT_A_PDF: &str = "Only PDF files can be uploaded";
+
+/// "The file is too large (limit is 20 MB)", for the limit in force.
+pub fn too_large(max_bytes: u64) -> String {
+    format!("The file is too large (limit is {} MB)", max_bytes / (1024 * 1024))
+}
 
 #[derive(Clone)]
 pub struct DocumentsService {
@@ -23,6 +28,10 @@ pub struct DocumentsService {
     applications: ApplicationsService,
     store: DocumentStore,
     queue: ExtractionQueue,
+    /// Largest PDF accepted (`Settings::max_upload_bytes`).
+    max_bytes: u64,
+    /// Files are sent to and read from the API (`Settings::documents_through_api`).
+    through_api: bool,
 }
 
 /// The uploaded name is only ever used as a label and in the download
@@ -50,8 +59,10 @@ impl DocumentsService {
         applications: ApplicationsService,
         store: DocumentStore,
         queue: ExtractionQueue,
+        max_bytes: u64,
+        through_api: bool,
     ) -> Self {
-        Self { db, applications, store, queue }
+        Self { db, applications, store, queue, max_bytes, through_api }
     }
 
     fn deny(user: &CurrentUser, action: &str, resource: Uuid, message: &str) -> AppError {
@@ -70,7 +81,9 @@ impl DocumentsService {
 
     /// Step 1: record the document and issue a grant to send the file straight
     /// to object storage. Storage itself enforces the PDF content type and the
-    /// 20 MB limit, so an oversized body is refused before it is stored.
+    /// 20 MB limit, so an oversized body is refused before it is stored. Where
+    /// files travel through the API, the grant names the API's own route and
+    /// `receive_content` enforces the same two things.
     pub async fn request_upload(
         &self,
         user: &CurrentUser,
@@ -84,8 +97,8 @@ impl DocumentsService {
         if body.size_bytes <= 0 {
             return Err(bad("Choose a PDF file to upload"));
         }
-        if u64::try_from(body.size_bytes).unwrap_or(u64::MAX) > MAX_UPLOAD_BYTES {
-            return Err(bad(TOO_LARGE));
+        if u64::try_from(body.size_bytes).unwrap_or(u64::MAX) > self.max_bytes {
+            return Err(bad(too_large(self.max_bytes)));
         }
         let filename = clean_filename(&body.filename);
 
@@ -143,15 +156,65 @@ impl DocumentsService {
         .execute(&mut *tx)
         .await
         .map_err(storage("record document"))?;
-        let target = self.store.upload_target(&key).await?;
+        let (url, fields) = if self.through_api {
+            (format!("/api/documents/{id}/content"), std::collections::BTreeMap::new())
+        } else {
+            let target = self.store.upload_target(&key).await?;
+            (target.url, target.fields)
+        };
         self.db.audit(&mut tx, Some(user.id), "document_upload_started", Some(id), None).await?;
         tx.commit().await.map_err(storage("record document"))?;
         Ok(UploadGrant {
             id: id.to_string(),
-            url: target.url,
-            fields: target.fields,
-            max_bytes: i64::try_from(MAX_UPLOAD_BYTES).unwrap_or(i64::MAX),
+            url,
+            fields,
+            max_bytes: i64::try_from(self.max_bytes).unwrap_or(i64::MAX),
         })
+    }
+
+    /// Hosted demo, between steps 1 and 2: the file itself, sent to the API
+    /// because the browser has no route to object storage. Only the uploader,
+    /// only while the grant is unused, only a PDF within the limit; step 2
+    /// then checks the stored object again exactly as it does for a direct
+    /// upload.
+    pub async fn receive_content(
+        &self,
+        user: &CurrentUser,
+        document: &str,
+        bytes: Vec<u8>,
+    ) -> Result<DocumentAccepted> {
+        if !self.through_api {
+            return Err(AppError::NotFound);
+        }
+        let document = Uuid::parse_str(document).map_err(|_| AppError::NotFound)?;
+        let mut tx = self.db.tx().await?;
+        let row = sqlx::query(
+            "SELECT application_id, storage_key, status, uploaded_by FROM documents WHERE id = $1 FOR UPDATE",
+        )
+        .bind(document)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(storage("load document"))?
+        .ok_or(AppError::NotFound)?;
+        self.applications.load_visible(&mut tx, user, row.get("application_id")).await?;
+        if row.get::<Uuid, _>("uploaded_by") != user.id {
+            return Err(Self::deny(
+                user,
+                "send document content",
+                document,
+                "Only the uploader can send this file",
+            ));
+        }
+        let status: String = row.get("status");
+        if status != "uploading" {
+            return Err(AppError::Conflict("This upload has already been completed".into()));
+        }
+        if let Some(message) = content_rejection(&bytes, self.max_bytes) {
+            return Err(bad(message));
+        }
+        self.store.put(&row.get::<String, _>("storage_key"), bytes).await?;
+        tx.commit().await.map_err(storage("store document content"))?;
+        Ok(DocumentAccepted { id: document.to_string(), status })
     }
 
     /// Step 2: check what actually arrived (a PDF within the limit), then mark
@@ -191,10 +254,10 @@ impl DocumentsService {
         let Some(head) = self.store.head(&key).await? else {
             return Err(bad("The upload did not arrive. Try again."));
         };
-        let rejection = if head.size > MAX_UPLOAD_BYTES {
-            Some(TOO_LARGE)
+        let rejection = if head.size > self.max_bytes {
+            Some(too_large(self.max_bytes))
         } else if !head.is_pdf {
-            Some("Only PDF files can be uploaded")
+            Some(NOT_A_PDF.to_owned())
         } else {
             None
         };
@@ -236,6 +299,10 @@ impl DocumentsService {
     /// A one-minute link to the stored PDF, for people who may see its
     /// application. The download is written to the audit trail first.
     pub async fn download(&self, user: &CurrentUser, document: &str) -> Result<DownloadGrant> {
+        if self.through_api {
+            // There is no link a browser could follow; `read_content` serves the file.
+            return Err(AppError::NotFound);
+        }
         let document = Uuid::parse_str(document).map_err(|_| AppError::NotFound)?;
         let mut tx = self.db.tx().await?;
         let row = sqlx::query(
@@ -274,11 +341,86 @@ impl DocumentsService {
         );
         Ok(DownloadGrant { url })
     }
+
+    /// Hosted demo: the stored PDF itself, for people who may see its
+    /// application. As with a download link, the audit entry is committed
+    /// before any byte is returned.
+    pub async fn read_content(&self, user: &CurrentUser, document: &str) -> Result<Vec<u8>> {
+        if !self.through_api {
+            return Err(AppError::NotFound);
+        }
+        let document = Uuid::parse_str(document).map_err(|_| AppError::NotFound)?;
+        let mut tx = self.db.tx().await?;
+        let row = sqlx::query(
+            "SELECT application_id, storage_key FROM documents
+             WHERE id = $1 AND status <> 'uploading'",
+        )
+        .bind(document)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(storage("load document"))?
+        .ok_or(AppError::NotFound)?;
+        // Same access rule as the application the document belongs to.
+        self.applications.load_visible(&mut tx, user, row.get("application_id")).await?;
+        // Seeded documents are a few kilobytes and uploads are capped, so the
+        // whole file fits in one response.
+        let bytes = self
+            .store
+            .get(&row.get::<String, _>("storage_key"), shared::storage::MAX_UPLOAD_BYTES)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        self.db.audit(&mut tx, Some(user.id), "document_downloaded", Some(document), None).await?;
+        tx.commit().await.map_err(storage("record download"))?;
+        tracing::info!(
+            event = "document_downloaded",
+            user_id = %user.id,
+            document = %document,
+            request_id = %transport::request_id(),
+            "document sent"
+        );
+        Ok(bytes)
+    }
+}
+
+/// Why a file sent through the API is refused, if it is: the same two checks
+/// object storage and `complete_upload` apply to a direct upload.
+fn content_rejection(bytes: &[u8], max_bytes: u64) -> Option<String> {
+    if bytes.len() as u64 > max_bytes {
+        Some(too_large(max_bytes))
+    } else if !bytes.starts_with(b"%PDF-") {
+        Some(NOT_A_PDF.to_owned())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::clean_filename;
+    use super::{clean_filename, content_rejection, too_large};
+
+    #[test]
+    fn a_file_sent_through_the_api_must_be_a_pdf_within_the_limit() {
+        let limit = crate::config::HOSTED_DEMO_MAX_UPLOAD_BYTES;
+        assert_eq!(too_large(limit), "The file is too large (limit is 4 MB)");
+        assert_eq!(
+            too_large(shared::storage::MAX_UPLOAD_BYTES),
+            "The file is too large (limit is 20 MB)"
+        );
+        assert_eq!(content_rejection(b"%PDF-1.7 ...", limit), None);
+        assert_eq!(
+            content_rejection(b"<html>not a pdf</html>", limit).as_deref(),
+            Some("Only PDF files can be uploaded")
+        );
+        assert_eq!(
+            content_rejection(b"", limit).as_deref(),
+            Some("Only PDF files can be uploaded")
+        );
+        let mut large = b"%PDF-".to_vec();
+        large.resize(usize::try_from(limit).unwrap() + 1, b' ');
+        assert_eq!(content_rejection(&large, limit), Some(too_large(limit)));
+        large.pop();
+        assert_eq!(content_rejection(&large, limit), None, "exactly at the limit");
+    }
 
     #[test]
     fn filenames_are_reduced_to_a_safe_pdf_label() {

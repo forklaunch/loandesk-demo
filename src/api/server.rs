@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 /// The complete router: ForkLaunch contract routes inside the framework's
 /// security and telemetry boundary, inside LoanDesk's transport layer.
 pub fn router(state: AppState) -> ApplicationResult<Router> {
-    let router = application::http(state.clone())?.router()?;
+    let router = application::http(state.clone())?;
     Ok(router.layer(axum::middleware::from_fn_with_state(state, transport::layer)))
 }
 
