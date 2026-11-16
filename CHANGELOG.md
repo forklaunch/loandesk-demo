@@ -60,6 +60,48 @@ Every pull request adds a line under "Unreleased"; a release moves them under a 
   and twice that.
 - Every request the front end makes has a deadline.
 
+### Added (records, access and keys)
+- **Retention purge.** The worker runs a housekeeping pass every hour: applications past their
+  retention period are deleted with their owners, documents and stored PDFs, and each leaves an
+  `application_purged` audit entry. Periods are settings (`RETENTION_*`); the shipped values are
+  demo defaults to be confirmed (`docs/data-classification.md`). Upload grants never confirmed are
+  removed with their files. One pass runs at a time across all workers. `extraction --lifecycle-once`
+  runs a pass by hand.
+- **Access review.** `GET /api/access-review` (and the Users page) lists every account with role,
+  second factor, last sign-in, open sessions and whether it is stale; `POST /api/access-review`
+  records a review in the audit trail. Admins can disable and re-enable accounts
+  (`POST /api/users/{id}/disable`, `/enable`). Accounts unused for `ACCESS_STALE_DAYS` are disabled
+  by the same hourly pass; the last usable admin never is.
+- **Password change**: `POST /api/auth/password` and a form under Security. It ends every session
+  of the user and starts a new one for the caller.
+- **Key rotation**: `api --rotate-keys` re-encrypts every protected field under the active key and
+  rebuilds the search tokens; search matches rows indexed under either key while it runs.
+  `docs/runbooks/key-rotation.md`. The worker warns when the active key is older than
+  `ENCRYPTION_KEY_MAX_AGE_DAYS`.
+- **Audit trail for admins**: `GET /api/audit-log`, paginated.
+- **Rate limits**: sign-in per client address, requests and expensive operations per user (HTTP 429).
+- Alert rules for security events, the scheduled job, the access review and key rotation reminders,
+  panics and dependency calls; Alertmanager routing by severity; `docs/runbooks/security-events.md`.
+- Metrics for calls to PostgreSQL and the object store (`loandesk.dependency.*`).
+- `docs/controls.md` (every control, with the test that proves it), `docs/needs-a-person.md`,
+  `docs/data-sharing.md`; `scripts/verify-lifecycle.py`, `scripts/load-test.py`; a coverage job and a
+  branch-protection ruleset (`.github/rulesets/main.json`, applied with `scripts/apply-branch-protection.sh`).
+
+### Changed (records, access and keys)
+- **Requests with a field the API does not declare are refused (400)**; they used to be ignored.
+- **Migration `0019` drops the pre-encryption plaintext columns** (`owners.full_name`,
+  `ssn_encrypted`, `ssn_last4`, `date_of_birth`; `applications.purpose`, `decision_note`;
+  `documents.filename`). `api --migrate` applies the additive migrations, re-encrypts, checks that
+  nothing readable is left, and only then drops them. After it, going back to the pre-ForkLaunch
+  backend means restoring the backup taken before the cutover.
+- The one-time re-encryption commits each batch of 200 rows on its own and resumes after an interruption.
+- A disabled account cannot sign in and has no sessions; the answer is the same as for a wrong password.
+- `User` responses carry `last_login_at` and `disabled_at`.
+- Dependency failures are logged with the code location of the failing call.
+- In production an `S3_URL` that is not `https://` is refused, by the API and the worker.
+- Base images are pinned to full versions: `debian:12.13-slim`, `node:22.21.1-alpine3.22`,
+  `nginxinc/nginx-unprivileged:1.27.5-alpine3.21`, `memcached:1.6.39-alpine3.22`.
+
 ### Removed
 - The original Axum backend (`backend/`) and its Compose file.
 

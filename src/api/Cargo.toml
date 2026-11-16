@@ -26,6 +26,10 @@ path = "__test__/persistence.rs"
 name = "logging"
 path = "__test__/logging.rs"
 
+[[test]]
+name = "controls"
+path = "__test__/controls.rs"
+
 [dependencies]
 contracts = { package = "api-contracts", path = ".forklaunch/contracts" }
 extraction-contracts = { path = "../extraction/.forklaunch/contracts" }

@@ -225,6 +225,23 @@ def main():
     check(status == 400 and body["error"] == "EIN must be 9 digits, like 12-3456789", "validation errors keep their specific message (400)")
     check(len(find(maya, "zebracorn")) >= 1 and len(find(maya, "yarbor")) >= 1, "new applications are searchable by purpose and owner-name prefix")
 
+    # --- strict input: unknown fields, privileged fields, array size -----------
+    valid = {
+        "legal_name": "Strict Input LLC", "ein": "98-7654321", "address": "1 Test Street", "industry": "Testing",
+        "requested_amount": 1000, "purpose": "Testing.",
+        "owners": [{"full_name": "Quentin Yarborough", "ssn": "900-55-1234", "date_of_birth": "1980-02-03", "ownership_percent": 1}],
+    }
+    for field, value in (("status", "approved"), ("created_by", str(uuid.uuid4())), ("revenue", 9_000_000), ("tenant_id", str(uuid.uuid4()))):
+        status, _, _ = maya.call("POST", "/api/applications", {**valid, field: value})
+        check(status == 400, f"a client cannot set `{field}` when creating an application: unknown fields are refused (400)")
+    status, _, _ = maya.call("POST", "/api/applications", {**valid, "owners": [{**valid["owners"][0], "is_verified": True}]})
+    check(status == 400, "an unknown field inside a nested object is refused too (400)")
+    status, body, _ = maya.call("POST", "/api/applications", {**valid, "owners": valid["owners"] * 21})
+    check(status == 400 and body["error"] == "Add between 1 and 20 owners", "an application with more than 20 owners is refused (400)")
+    status, _, _ = maya.call("POST", "/api/applications", {**valid, "legal_name": "x" * 401})
+    check(status == 400, "a string over its length limit is refused (400)")
+    check(find(maya, "Strict Input") == [], "none of the refused requests created anything")
+
     # --- SSN handling --------------------------------------------------------
     status, detail, _ = maya.call("GET", f"/api/applications/{created['id']}")
     raw = json.dumps(detail)
@@ -239,6 +256,32 @@ def main():
     check(status == 404, "another manager cannot reveal that SSN (404)")
     status, _, _ = admin.call("POST", f"/api/applications/{created['id']}/owners/{owner['id']}/reveal-ssn")
     check(status == 403, "an admin cannot reveal an SSN (403)")
+
+    # --- audit trail: who, what, which record, when ---------------------------
+    status, trail, _ = admin.call("GET", "/api/audit-log?limit=100")
+    status2, first, headers = admin.call("GET", "/api/audit-log?limit=2")
+    older = admin.call("GET", f"/api/audit-log?limit=2&cursor={headers.get('x-next-cursor')}")[1]
+    check(
+        status == 200 and status2 == 200 and len(first) == 2 and len(older) == 2 and older[0]["id"] < first[1]["id"] < first[0]["id"],
+        "an admin reads the audit trail, newest first, one page at a time",
+    )
+    maya_id = maya.call("GET", "/api/auth/me")[1]["id"]
+    reveal = next(e for e in trail if e["action"] == "ssn_revealed")
+    check(
+        reveal["user_id"] == maya_id and reveal["entity_id"] == owner["id"] and reveal["at"] and reveal["request_id"],
+        "revealing an SSN left an audit entry: who, what, which owner, when",
+    )
+    reads = [e for e in trail if e["action"] == "protected_field_read" and e["user_id"] == maya_id]
+    check(
+        any(e["entity_id"] == owner["id"] and e["detail"].startswith("Owner.ssn_ciphertext") for e in reads)
+        and any(e["entity_id"] == created["id"] and e["detail"] == "Application.purpose_ciphertext: view-application" for e in reads),
+        "opening an application left an audit entry for each personal field read, with the reason",
+    )
+    check(any(e["action"] == "application_exported" and e["entity_id"] == created["id"] for e in trail), "so did the export")
+    check(any(e["action"] == "application_created" and e["entity_id"] == created["id"] and e["user_id"] == maya_id for e in trail), "and creating the application")
+    check("900551234" not in json.dumps(trail) and "Yarborough" not in json.dumps(trail), "audit entries hold identifiers and action names, never the values")
+    status, _, _ = maya.call("GET", "/api/audit-log")
+    check(status == 403, "only admins can read the audit trail (403)")
 
     # --- upload, extraction, download ---------------------------------------
     with open(SAMPLE, "rb") as handle:

@@ -55,8 +55,10 @@ All seeded borrowers, owners, SSNs and EINs are fictional (SSNs are in the
 3. Note that Maya has no approve/decline buttons.
 4. Sign in as **Priya**. She sees every application, and can approve or decline
    Cedar Ridge with a note.
-5. Sign in as **admin** to add a user or change someone's role.
-6. Under **Security**, anyone can turn on two-factor sign-in with an authenticator app.
+5. Sign in as **admin** to add a user, change someone's role, disable an account, or go through
+   the access review at the bottom of **Users** and record it.
+6. Under **Security**, anyone can turn on two-factor sign-in with an authenticator app, or
+   change their password (every other session of theirs is signed out).
 
 ## Who can do what
 
@@ -66,7 +68,9 @@ All seeded borrowers, owners, SSNs and EINs are fictional (SSNs are in the
 | Create applications, upload documents | Yes (own applications) | No | No |
 | Download documents, view full SSN | Own applications | All | No |
 | Approve / decline | No | Yes, except applications they created | No |
-| Add users, set roles | No | No | Yes (not their own role) |
+| Add users, set roles, disable and re-enable accounts | No | No | Yes (not their own role or account) |
+| Access review, audit trail (`GET /api/audit-log`) | No | No | Yes |
+| Change own password, two-factor sign-in | Yes | Yes | Yes |
 
 Roles are declared on each route's contract (`src/api/api/controllers/`) and
 enforced by one policy (`src/api/api/policy.rs`). "Cannot approve their own
@@ -78,16 +82,24 @@ the same rule.
 ## Test it
 
 ```sh
-cargo test --workspace                 # unit, contract and classification tests (no services needed)
+cargo test --workspace                 # unit, contract, classification and repository checks (no services needed)
 cd frontend && npm ci && npm run build # type-check and build the front end
 
 docker compose up --build -d --wait    # then, against the running stack:
 python3 scripts/e2e.py                 # end-to-end checks: flows and who is refused
 sh scripts/verify-storage.sh           # ciphertext at rest, append-only audit trail, row-level security
 sh scripts/verify-operations.sh        # after e2e.py: nothing personal in any log, readiness, graceful shutdown
+python3 scripts/load-test.py           # main read paths hold the latency objective at 32 requests/s
+python3 scripts/verify-lifecycle.py    # retention purge, access review, password change, rate limits, key rotation
 ```
 
-`verify-operations.sh` stops and restarts the object store, the API and the worker while it checks them.
+`verify-operations.sh` stops and restarts the object store, the API and the worker while it checks
+them. `verify-lifecycle.py` runs last: it ages records in the database, runs the worker's scheduled
+job by hand, and rotates the stack's encryption key from start to finish (the stack is on a new key
+afterwards).
+
+`docs/controls.md` lists every control a reviewer asks about, the code that implements it and the
+test or check above that proves it. `docs/needs-a-person.md` lists what only a person can decide or do.
 
 ## How it fits together
 
@@ -99,7 +111,9 @@ each control is enforced. In short:
 - `src/extraction` – ForkLaunch worker on the leased PostgreSQL queue: reads a
   PDF from object storage, finds the figures, saves them. Failures that can
   pass are retried up to 3 times, then kept as dead letters; unreadable PDFs
-  are marked "could not be read".
+  are marked "could not be read". It also runs the hourly housekeeping job
+  (`lifecycle.rs`): the retention purge, stale accounts, and the access-review
+  and key-rotation reminders.
 - `src/shared` – risk formulas, the figure parser, and what an error may say in a log.
 - `frontend` – React + TypeScript (Vite), served by nginx. Errors caught in the
   browser are reported to `POST /api/client-errors` (class and stack frames
@@ -110,8 +124,10 @@ each control is enforced. In short:
   in any image. `src/monitoring` also holds the dashboards, collector config
   and alert rules, which are used.
 
-More: `docs/deployment.md`, `docs/migration.md`, `docs/data-classification.md`,
-`docs/runbooks/`, `docs/adr/`, `CHANGELOG.md`.
+More: `docs/controls.md`, `docs/needs-a-person.md`, `docs/deployment.md`,
+`docs/migration.md`, `docs/data-classification.md` (classification and
+retention), `docs/data-sharing.md`, `docs/slo.md`, `docs/runbooks/`,
+`docs/adr/`, `CHANGELOG.md`.
 
 ## Things you should know before relying on it
 
@@ -133,7 +149,15 @@ figure found in a later one replaces the earlier value.
 **Sensitive data.** Owner names, SSNs, dates of birth, the purpose text,
 decision notes and file names are encrypted field by field. Opening an
 application, downloading a document and every change are written to the
-append-only `audit_log` table (there is no screen for it yet).
+append-only `audit_log` table. Admins read it through `GET /api/audit-log`
+(ids and action names only; there is no screen for it yet).
+
+**Records are deleted when their retention period ends.** The worker's hourly
+job deletes applications past their period together with their owners,
+documents and stored PDFs, and writes an audit entry for each. The periods in
+`docker-compose.yaml` (7 years after a decision, 3 years for applications never
+decided) are **demo defaults, not a policy**: see `docs/data-classification.md`.
+Accounts unused for 90 days (also a demo default) are disabled the same way.
 
 **Full SSNs: one audited way out.** Lists, the application view and the export
 carry only an SSN's last four digits. A full SSN leaves the server through
@@ -157,8 +181,12 @@ reads every log statement in the source (`src/api/__test__/logging.rs`), and
 `scripts/verify-operations.sh` searches the logs of the running stack for the
 demo owners' names, SSNs, dates of birth, free text, file names and passwords.
 The web server's access log records paths without query strings. Passwords are Argon2id hashes. Sessions are
-HttpOnly, SameSite=Strict cookies that last 8 hours. Five failed sign-ins lock
-an account for 15 minutes. Uploads must be PDFs of at most 20 MB.
+HttpOnly, SameSite=Strict cookies that last 8 hours; signing out, changing the
+password, a role change and disabling an account end them at once. Five failed
+sign-ins lock an account for 15 minutes; sign-ins are also limited per client
+address, and every user to 600 requests and 60 expensive operations a minute
+(HTTP 429 beyond that). Requests with fields the API does not declare are
+refused. Uploads must be PDFs of at most 20 MB.
 Because names and purpose are encrypted, search matches them by whole word or
 by the first three or more letters of a word, not by any fragment.
 
@@ -169,9 +197,10 @@ connection or a non-HTTPS origin. With seeding off there are no users, so the
 first admin has to be inserted into the `users` table by hand; there is no
 bootstrap command for that yet.
 
-**Not built:** editing or deleting applications, password change/reset,
-deactivating users, single sign-on, an audit-log screen, a retention purge for
-applications, backups (a platform setting).
+**Not built:** editing applications, deleting one application on request,
+password reset (a user who forgets their password needs a new account), single
+sign-on, an audit-log screen, field encryption of staff email and name, backups
+(a platform setting). `docs/controls.md` ends with the full list and the reasons.
 
 ## Sample documents
 

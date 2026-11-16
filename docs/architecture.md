@@ -12,7 +12,7 @@ browser ──> web (nginx: React app) ──/api/──> api (ForkLaunch, Rust/
 | --- | --- | --- |
 | Web | `frontend/` | React + TypeScript (Vite), served by nginx. Proxies `/api/` to the API and `/storage/` to the object store. |
 | API | `src/api/` | ForkLaunch Rust service. Every route is a typed contract (`api/controllers/*`), bound to the session policy (`api/policy.rs`). |
-| Worker | `src/extraction/` | ForkLaunch leased-queue consumer. Reads a PDF from storage, extracts figures, saves them. |
+| Worker | `src/extraction/` | ForkLaunch leased-queue consumer. Reads a PDF from storage, extracts figures, saves them. Also runs the hourly housekeeping job (retention purge, stale accounts, reminders). |
 | Shared | `src/shared/` | Risk formulas, figure parser, object-key layout, demo PDF writer. |
 | Database | PostgreSQL 16 | One database. Application tables in `public`, the job queue in `fl_worker`. |
 | Object store | S3 (MinIO locally) | Uploaded PDFs under `tenants/<tenant>/applications/<application>/<document>.pdf`. |
@@ -59,4 +59,14 @@ See `docs/data-classification.md`. Classification is declared on the stored mode
 | Retry limit and jittered delay | `infrastructure/extraction_queue.rs` (`retry_delays`), `WORKER_MAX_ATTEMPTS`, `WORKER_BACKOFF_SECONDS` |
 | Indexes built without blocking writes | `src/api/migrations/0003` to `0014`, checked by `src/api/__test__/persistence.rs` |
 | Browser error reports | `frontend/src/errorReporting.ts`, `domain/services/browser_errors.rs` |
-| Tests for the above | `src/api/__test__/`, `scripts/e2e.py`, `scripts/verify-storage.sh`, `scripts/verify-operations.sh` |
+| Rate limits (sign-in per address, requests and expensive operations per user) | `api/rate_limit.rs`, applied in `api/transport.rs` and `api/policy.rs` |
+| Closed request schemas (unknown fields refused) | `unknown_fields = "deny"` in `domain/schemas/*` |
+| Password change ends every session | `AuthService::change_password` |
+| Disabled accounts, access review, audit trail for admins | `domain/services/users.rs` |
+| Retention purge, stale accounts, review and key-age reminders; one pass at a time | `src/extraction/lifecycle.rs` |
+| Key rotation: re-seal rows, rebuild search tokens | `persistence/rotation.rs` (`api --rotate-keys`), `docs/runbooks/key-rotation.md` |
+| Expand, backfill, contract migrations | `persistence/database.rs` (`migrate`, `LAST_EXPAND_MIGRATION`), `migrations/0019` |
+| Dependency call metrics | `infrastructure/dependency_metrics.rs` |
+| Alerts and their routing | `src/monitoring/alerts/loandesk.rules.yaml`, `alertmanager.yaml` |
+| Every control, with its evidence | `docs/controls.md` |
+| Tests for the above | `src/api/__test__/`, `scripts/e2e.py`, `scripts/verify-storage.sh`, `scripts/verify-operations.sh`, `scripts/verify-lifecycle.py`, `scripts/load-test.py` |

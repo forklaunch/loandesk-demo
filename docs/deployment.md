@@ -17,8 +17,14 @@ below is what a person has to set up.
   `sslmode=verify-full`; `DATABASE_ALLOW_PLAINTEXT_DEVELOPMENT=false`
 - `TENANT_ID`, `ENCRYPTION_KEY_ID`, `ENCRYPTION_KEY_HEX` from the secret manager
 - `S3_BUCKET`, `S3_REGION` (task role for credentials; bucket with default encryption and no public access)
+- `S3_URL` only for an S3-compatible store, and then `https://` (refused otherwise)
 - `OTEL_EXPORTER_OTLP_ENDPOINT`
+- the retention and access periods (`RETENTION_*`, `ACCESS_*`, `ENCRYPTION_KEY_MAX_AGE_DAYS`):
+  the values in `.env.example` are demo defaults that a person has to confirm (`docs/needs-a-person.md`)
 - no `SEED_DEMO_DATA`, no `DEMO_SECRETS`
+
+The worker needs delete permission on the bucket as well as read: its scheduled job removes the
+files of purged records.
 
 The API refuses to start in production if any local-demo allowance is set
 (`Settings::validate`, tested in `src/api/config.rs`).
@@ -27,6 +33,9 @@ The API refuses to start in production if any local-demo allowance is set
 
 1. Build images tagged with the commit (`GIT_SHA` build arg; shown in the startup log and `/health`).
 2. Deploy to staging; run `api --migrate`, then `extraction --migrate`; run `scripts/e2e.py` against staging data that may be thrown away.
+   `api --migrate` is safe to run while the previous release is serving: every migration is
+   additive, except the ones after `LAST_EXPAND_MIGRATION`, which only drop columns that no
+   release since the cutover reads, and only after checking they are empty (`docs/controls.md`, 17).
 3. Back up production (`docs/runbooks/backup-restore.md`).
 4. Production: run both migrations, then roll the API and worker. Health checks: API `GET /health`
    (readiness) and `GET /api/healthz` (liveness); worker `GET /ready` on `WORKER_HTTP_ADDR`.
@@ -36,6 +45,11 @@ The API refuses to start in production if any local-demo allowance is set
 
 ## Health checks, scaling
 
-Run at least two API instances; the API is stateless (sessions are in PostgreSQL, files in S3).
-Workers can run side by side: jobs are leased. Suggested sizing is in `docker-compose.yaml`
+Run at least two API instances; the API is stateless (sessions are in PostgreSQL, files in S3;
+rate-limit buckets are per instance, so a caller can spend the limit once per instance).
+Workers can run side by side: jobs are leased, and the hourly housekeeping job runs in one
+of them at a time (advisory lock).
+
+Alerts: load `src/monitoring/alerts/loandesk.rules.yaml` into the Mimir and Loki rulers and
+`src/monitoring/alerts/alertmanager.yaml` into Alertmanager, with the two destination files it names. Suggested sizing is in `docker-compose.yaml`
 (`deploy.resources`).
