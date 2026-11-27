@@ -1,4 +1,6 @@
-FROM node:22.21.1-alpine3.22 AS build
+# Build on the ForkLaunch hardened Node 26 image (Wolfi, glibc), the same
+# Node as frontend/.nvmrc; only the static build reaches the nginx stage.
+FROM public.ecr.aws/e6h0t2z8/node:26-dev AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
