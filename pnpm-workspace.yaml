@@ -7,7 +7,9 @@ allowBuilds:
   msgpackr-extract: true
   protobufjs: true
   sqlite3: true
-  ssh2: true
+  # ssh2's optional crypto binding does not compile against Node 26's V8;
+  # ssh2 falls back to its JavaScript implementation without it.
+  ssh2: false
   tldjs: true
   unrs-resolver: true
 minimumReleaseAge: 1440
