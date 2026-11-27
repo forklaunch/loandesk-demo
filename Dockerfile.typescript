@@ -4,7 +4,7 @@
 # only when ECR scanning reports 0 findings: https://github.com/forklaunch/base-images
 # node:26-dev carries python3, make, g++, git and npm. Node 26 has no corepack,
 # so the packageManager pnpm (12.23.0, a native executable) comes from npm.
-FROM public.ecr.aws/e6h0t2z8/node:26-dev AS builder
+FROM public.ecr.aws/e6h0t2z8/node:26-dev@sha256:c31798fa091a730089b0bd8d6b3995ba43d444a4f114f316e686fa36c47feb74 AS builder
 RUN npm install -g --prefix /usr/local pnpm@12.23.0 \
  && [ "$(pnpm --version)" = "12.23.0" ]
 WORKDIR /app
@@ -150,7 +150,7 @@ RUN node /forklaunch/production-build.mjs /forklaunch/production.json
 RUN mkdir -p /out
 RUN mkdir -p /out/.certs && cp core/certs/aws-rds-global-bundle.pem /out/.certs/aws-rds-global-bundle.pem
 # Runtime: Node, ca-certificates, curl and BusyBox; user node (uid 1000).
-FROM public.ecr.aws/e6h0t2z8/node:26 AS runtime
+FROM public.ecr.aws/e6h0t2z8/node:26@sha256:4ca1677772651587af3efdbf614142e11b56585043273179ecd82ce1943fc7df AS runtime
 WORKDIR /app
 COPY --from=builder --chown=node:node /out/ /app/
 ENV NODE_ENV=production

@@ -3,7 +3,7 @@
 # ForkLaunch hardened Rust images (Wolfi, glibc), rebuilt nightly and published
 # only when ECR scanning reports 0 findings: https://github.com/forklaunch/base-images
 # rust:dev carries the toolchain, pkg-config, cmake, make, gcc, perl and git.
-FROM public.ecr.aws/e6h0t2z8/rust:dev AS builder
+FROM public.ecr.aws/e6h0t2z8/rust:dev@sha256:f45fab4155c4d66c3f084971dfb4e21a77d9814181dd5e27952062846035a567 AS builder
 WORKDIR /app
 COPY [".cargo/config.toml","/app/.cargo/config.toml"]
 COPY [".forklaunch/manifest.toml","/app/.forklaunch/manifest.toml"]
@@ -27,7 +27,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --locked --release --workspace --bins \
     && mkdir -p /app/out && cp target/release/api target/release/extraction /app/out/
 # Runtime: libgcc, OpenSSL 3 libraries, ca-certificates, curl and BusyBox.
-FROM public.ecr.aws/e6h0t2z8/rust:latest AS runtime
+FROM public.ecr.aws/e6h0t2z8/rust:latest@sha256:48bb3838e539d3c4a8b0f60217e973dd0b7bf45d460e5dd61df8783ba457da71 AS runtime
 USER root
 WORKDIR /app
 ADD --chmod=0644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
